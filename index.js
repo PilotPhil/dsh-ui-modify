@@ -34,6 +34,13 @@ export const Config = z.object({
    * they only apply if the item returns.
    */
   hiddenSidebarItems: z.array(z.string()).default([]).volatile(),
+  /**
+   * Whether hidden panel buttons should be listed in the sidebar's More menu,
+   * so the menu doubles as a destination for hidden entries instead of losing
+   * them. The More button is kept visible while this is active and at least one
+   * hidden item is menu-eligible.
+   */
+  showHiddenInMoreMenu: z.boolean().default(false).volatile(),
 })
 
 /**

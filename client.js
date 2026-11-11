@@ -36,6 +36,7 @@ window.__ModuleLoader__.load({
     const SHOW_NEW_SESSION_FIELD = 'showNewSession';
     const SIDEBAR_LAYOUT_FIELD = 'sidebarButtonLayout';
     const HIDDEN_ITEMS_FIELD = 'hiddenSidebarItems';
+    const SHOW_HIDDEN_IN_MORE_MENU_FIELD = 'showHiddenInMoreMenu';
     /** The two slot containers that render sidebar buttons. */
     const PANEL_SLOT = 'sidebar.panellist';
     const FOOTER_SLOT = 'sidebar.footer.action';
@@ -150,6 +151,46 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Effective hidden set from one configuration-form snapshot: the unified
+     * list plus legacy single-item fields still set to false.
+     * @param {object} snapshot - the configuration form snapshot.
+     * @returns {Set<string>} hidden item keys.
+     */
+    function hiddenKeysOf(snapshot) {
+      const hidden = new Set();
+      if (snapshot?.status !== 'ready') return hidden;
+      const list = snapshot.value?.[HIDDEN_ITEMS_FIELD];
+      if (Array.isArray(list)) {
+        for (const key of list) if (typeof key === 'string') hidden.add(key);
+      }
+      if (snapshot.value?.[SHOW_MORE_FIELD] === false) hidden.add(NATIVE_MORE_KEY);
+      if (snapshot.value?.[SHOW_NEW_SESSION_FIELD] === false) hidden.add(NATIVE_NEW_SESSION_KEY);
+      if (snapshot.value?.[SHOW_TASKS_FIELD] === false) hidden.add(SCHEDULES_KEY);
+      return hidden;
+    }
+
+    /**
+     * Whether a hidden item can be offered as a row in the sidebar's More menu.
+     * Panels navigate somewhere; the New session control is an action. Footer
+     * widgets (Remote, usage card) are not menu rows.
+     * @param {object} item - one discovered item.
+     * @returns {boolean} whether the item belongs in the menu section.
+     */
+    function isMenuEligible(item) {
+      return item.kind === 'panellist' || item.key === NATIVE_NEW_SESSION_KEY;
+    }
+
+    /**
+     * Hidden items that should appear in the More menu section.
+     * @param {Array<object>} items - discovered sidebar items.
+     * @param {Set<string>} hidden - effective hidden keys.
+     * @returns {Array<object>} hidden menu-eligible items.
+     */
+    function hiddenMenuItems(items, hidden) {
+      return items.filter((item) => item.key !== NATIVE_MORE_KEY && isMenuEligible(item) && hidden.has(item.key));
+    }
+
+    /**
      * Resolve one registered slot label (string or thunk) without throwing.
      * @param {unknown} option - the registration's label option.
      * @returns {string | undefined} the resolved label.
@@ -212,6 +253,7 @@ window.__ModuleLoader__.load({
             id,
             label: resolveItemLabel(entry.options?.label) ?? registrant ?? id,
             order: entry.options?.order ?? 0,
+            icon: entry.component,
           });
         }
       }
@@ -289,6 +331,14 @@ window.__ModuleLoader__.load({
 .dshuim_categoryTitle { margin: 0; font-size: 15px; font-weight: 600; line-height: 22px; }
 .dshuim_categoryHint { margin: 0; color: var(--dsw-alias-label-secondary, #8b8b8b); font-size: 12px; line-height: 18px; }
 .dshuim_subheading { margin: 6px 0 0; font-size: 13px; font-weight: 600; line-height: 20px; }
+.dshuim_menuSection { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; padding-top: 4px; border-top: .5px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.3)); }
+.dshuim_menuLabel { padding: 6px 10px 2px; color: var(--dsw-alias-label-secondary, #8b8b8b); font-size: 11px; font-weight: 500; }
+.dshuim_menuItem { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary, inherit); font: inherit; font-size: 13px; line-height: 18px; text-align: left; cursor: pointer; }
+.dshuim_menuItem:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
+.dshuim_menuItem:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #3d6df6); outline-offset: -2px; }
+.dshuim_menuGlyph { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex: none; color: var(--dsw-alias-label-secondary, #8b8b8b); }
+.dshuim_menuText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dshuim_menuPlus { font-size: 16px; line-height: 16px; }
 `;
 
     /** Simplified Chinese copy. */
@@ -300,6 +350,11 @@ window.__ModuleLoader__.load({
       categorySidebarHint: '控制左侧栏按钮的显示与排列。',
       subsectionVisibility: '按钮可见性',
       subsectionVisibilityHint: '自动发现侧栏上的原生控件、面板按钮与底部动作，逐个控制是否显示。',
+      subsectionMoreMenu: '更多菜单',
+      hiddenInMoreMenu: '在「更多」菜单中显示隐藏项',
+      hiddenInMoreMenuHint: '把隐藏的面板按钮和「新会话」放进侧栏的「更多」菜单，避免菜单位置空着。开启后，只要菜单里还有隐藏项，「更多」按钮就会保留；底部动作与流量卡片不放进菜单。',
+      hiddenMenuGroup: '已隐藏',
+      moreForcedHint: '有隐藏项放在「更多」菜单时保留此按钮',
       subsectionLayout: '按钮布局',
       categoryOther: '其他区域',
       categoryOtherHint: '后续针对主界面、对话或其他区域的优化会显示在这里。',
@@ -327,6 +382,11 @@ window.__ModuleLoader__.load({
       categorySidebarHint: 'Control which sidebar buttons are shown and how they are arranged.',
       subsectionVisibility: 'Button visibility',
       subsectionVisibilityHint: 'Detects native controls, panel buttons, and footer actions so each can be shown or hidden.',
+      subsectionMoreMenu: 'More menu',
+      hiddenInMoreMenu: 'Show hidden items in the More menu',
+      hiddenInMoreMenuHint: 'Moves hidden panel buttons and the New session action into the sidebar More menu instead of leaving the menu empty. While the menu hosts hidden items, the More button stays visible; footer actions and the usage card are not added to the menu.',
+      hiddenMenuGroup: 'Hidden',
+      moreForcedHint: 'Kept while the More menu hosts hidden items',
       subsectionLayout: 'Button layout',
       categoryOther: 'Other areas',
       categoryOtherHint: 'Future refinements for the main view, conversation, and other areas will appear here.',
@@ -414,6 +474,59 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Contain one panel glyph so a third-party icon cannot break the menu
+     * section.
+     */
+    class MenuGlyphBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { failed: false };
+      }
+
+      static getDerivedStateFromError() {
+        return { failed: true };
+      }
+
+      render() {
+        return this.state.failed ? null : this.props.children;
+      }
+    }
+
+    /**
+     * More-menu section listing hidden panel buttons and the hidden New session
+     * action. The section is only registered while at least one such item is
+     * hidden, so the shipped More menu stays untouched otherwise.
+     * @param {object} props - More-menu owner props plus this plugin's hooks and actions.
+     * @returns {object | null} the section, or nothing when no hidden item is eligible.
+     */
+    function HiddenItemsMenu(props) {
+      const t = props.t;
+      const form = props.useForm((snapshot) => snapshot);
+      const items = props.useItems((value) => value);
+      if (form.status !== 'ready' || form.value?.[SHOW_HIDDEN_IN_MORE_MENU_FIELD] !== true) return null;
+      const rows = hiddenMenuItems(items, hiddenKeysOf(form));
+      if (rows.length === 0) return null;
+      return h('div', { className: 'dshuim_menuSection' },
+        h('div', { className: 'dshuim_menuLabel', role: 'presentation' }, t('hiddenMenuGroup')),
+        rows.map((item) => h('button', {
+          key: item.key,
+          type: 'button',
+          role: 'menuitem',
+          className: 'dshuim_menuItem',
+          onClick: () => {
+            if (item.kind === 'panellist') props.onOpen?.(item.id);
+            else if (item.key === NATIVE_NEW_SESSION_KEY) props.startSession?.();
+            props.onDismiss?.();
+          },
+        },
+        h('span', { className: 'dshuim_menuGlyph', 'aria-hidden': 'true' },
+          item.kind === 'panellist' && typeof item.icon === 'function'
+            ? h(MenuGlyphBoundary, null, h(item.icon, { size: 16, active: false }))
+            : h('span', { className: 'dshuim_menuPlus' }, '+')),
+        h('span', { className: 'dshuim_menuText' }, item.label))));
+    }
+
+    /**
      * Settings page, grouped by interface area.
      * @param {object} props - slot props, including the locale reader, the configuration form, the item directory and the writers.
      * @returns {object} the settings section element.
@@ -427,14 +540,11 @@ window.__ModuleLoader__.load({
       const busy = writes.busy || !writable;
       const layout = ready ? form.value?.[SIDEBAR_LAYOUT_FIELD] ?? 'default' : 'default';
       const items = props.useItems((value) => value);
-      const hiddenKeys = new Set(ready && Array.isArray(form.value?.[HIDDEN_ITEMS_FIELD])
-        ? form.value[HIDDEN_ITEMS_FIELD]
-        : []);
-      // Legacy single-item fields keep their old behavior until the user
-      // toggles that item in the unified list, which clears the legacy field.
-      if (ready && form.value?.[SHOW_MORE_FIELD] === false) hiddenKeys.add(NATIVE_MORE_KEY);
-      if (ready && form.value?.[SHOW_NEW_SESSION_FIELD] === false) hiddenKeys.add(NATIVE_NEW_SESSION_KEY);
-      if (ready && form.value?.[SHOW_TASKS_FIELD] === false) hiddenKeys.add(SCHEDULES_KEY);
+      const hiddenKeys = hiddenKeysOf(form);
+      const menuFeature = ready && form.value?.[SHOW_HIDDEN_IN_MORE_MENU_FIELD] === true;
+      // While hidden items occupy the More menu, the More button must stay
+      // reachable; the list reflects that by forcing its switch on.
+      const forceMore = menuFeature && hiddenMenuItems(items, hiddenKeys).length > 0;
       const kindLabel = (kind) => kind === 'native'
         ? t('kindNative')
         : kind === 'panellist' ? t('kindPanel') : t('kindFooter');
@@ -448,16 +558,33 @@ window.__ModuleLoader__.load({
           h('p', { className: 'dshuim_categoryHint' }, t('subsectionVisibilityHint')),
           items.length === 0
             ? h('p', { className: 'dshuim_note' }, t('noSidebarButtons'))
-            : h('div', { className: 'dshuim_group' }, items.map((item) => h(PreferenceRow, {
-              key: item.key,
-              label: item.label,
-              hint: item.kind === 'native' ? kindLabel(item.kind) : `${kindLabel(item.kind)} · ${item.id}`,
-              checked: !hiddenKeys.has(item.key),
+            : h('div', { className: 'dshuim_group' }, items.map((item) => {
+              const isMore = item.key === NATIVE_MORE_KEY;
+              const forced = isMore && forceMore;
+              return h(PreferenceRow, {
+                key: item.key,
+                label: item.label,
+                hint: forced
+                  ? t('moreForcedHint')
+                  : item.kind === 'native' ? kindLabel(item.kind) : `${kindLabel(item.kind)} · ${item.id}`,
+                checked: forced ? true : !hiddenKeys.has(item.key),
+                disabled: busy || forced,
+                onChange: () => {
+                  void props.setItemHidden(item.key, hiddenKeys.has(item.key));
+                },
+              });
+            })),
+          h('h4', { className: 'dshuim_subheading' }, t('subsectionMoreMenu')),
+          h('div', { className: 'dshuim_group' },
+            h(PreferenceRow, {
+              label: t('hiddenInMoreMenu'),
+              hint: t('hiddenInMoreMenuHint'),
+              checked: menuFeature,
               disabled: busy,
               onChange: () => {
-                void props.setItemHidden(item.key, hiddenKeys.has(item.key));
+                void props.setPreference(SHOW_HIDDEN_IN_MORE_MENU_FIELD, !menuFeature);
               },
-            }))),
+            })),
           h('h4', { className: 'dshuim_subheading' }, t('subsectionLayout')),
           h('div', { className: 'dshuim_group' },
             h(LayoutRow, {
@@ -504,20 +631,6 @@ window.__ModuleLoader__.load({
         : key === NATIVE_NEW_SESSION_KEY
           ? SHOW_NEW_SESSION_FIELD
           : key === SCHEDULES_KEY ? SHOW_TASKS_FIELD : undefined;
-
-      /** Effective hidden set: the unified list plus legacy false-valued fields. */
-      const hiddenKeysOf = (snapshot = form.getSnapshot()) => {
-        const hidden = new Set();
-        if (snapshot.status !== 'ready') return hidden;
-        const list = snapshot.value?.[HIDDEN_ITEMS_FIELD];
-        if (Array.isArray(list)) {
-          for (const key of list) if (typeof key === 'string') hidden.add(key);
-        }
-        if (snapshot.value?.[SHOW_MORE_FIELD] === false) hidden.add(NATIVE_MORE_KEY);
-        if (snapshot.value?.[SHOW_NEW_SESSION_FIELD] === false) hidden.add(NATIVE_NEW_SESSION_KEY);
-        if (snapshot.value?.[SHOW_TASKS_FIELD] === false) hidden.add(SCHEDULES_KEY);
-        return hidden;
-      };
 
       /** The configured button grouping: `default`, `top`, or `bottom`. */
       const sidebarLayout = () => {
@@ -602,9 +715,14 @@ window.__ModuleLoader__.load({
         tag.dataset.pluginCss = 'dsh-ui-modify/sidebar-visibility.css';
         document.head.appendChild(tag);
         const sync = () => {
-          const hidden = hiddenKeysOf();
+          const snapshot = form.getSnapshot();
+          const hidden = hiddenKeysOf(snapshot);
+          // Keep the More button reachable while the menu hosts hidden items.
+          const forceMore = snapshot.status === 'ready'
+            && snapshot.value?.[SHOW_HIDDEN_IN_MORE_MENU_FIELD] === true
+            && hiddenMenuItems(items.getSnapshot(), hidden).length > 0;
           const rules = [HIDE_SHADOWED_PANEL_CSS];
-          if (hidden.has(NATIVE_MORE_KEY)) rules.push(HIDE_SIDEBAR_MORE_CSS);
+          if (hidden.has(NATIVE_MORE_KEY) && !forceMore) rules.push(HIDE_SIDEBAR_MORE_CSS);
           if (hidden.has(NATIVE_NEW_SESSION_KEY)) rules.push(HIDE_NEW_SESSION_CSS);
           const layout = sidebarLayout();
           if (layout !== 'default') rules.push(unifiedSidebarCss(layout));
@@ -612,8 +730,10 @@ window.__ModuleLoader__.load({
         };
         sync();
         const off = form.subscribe(sync);
+        const offItems = itemsStore?.subscribe(sync);
         return () => {
           off();
+          offItems?.();
           tag.remove();
         };
       }, 'dsh-ui-modify: sidebar visibility');
@@ -638,6 +758,46 @@ window.__ModuleLoader__.load({
           shadows.clear();
         };
       }, 'dsh-ui-modify: sidebar item shadows');
+
+      // Register the More-menu section only while it has hidden items to host.
+      // The registration itself is what makes the shipped More button appear,
+      // so it must be removed again when no hidden item is menu-eligible.
+      let offMenu = null;
+      const syncMenu = () => {
+        const snapshot = form.getSnapshot();
+        const wanted = snapshot.status === 'ready'
+          && snapshot.value?.[SHOW_HIDDEN_IN_MORE_MENU_FIELD] === true
+          && hiddenMenuItems(items.getSnapshot(), hiddenKeysOf(snapshot)).length > 0;
+        if (wanted && offMenu === null) {
+          offMenu = ctx.slots.inject(PANEL_ACTION_SLOT, () => ctx.slots.register({
+            name: PANEL_ACTION_SLOT,
+            id: 'ui-modify-hidden-items',
+            order: 1000,
+            locale: NS,
+            inject: () => ({
+              hooks: { form, items },
+              startSession: () => {
+                const workspace = ctx.get?.('uiWorkspace');
+                workspace?.startSession?.();
+              },
+            }),
+          }, HiddenItemsMenu));
+        } else if (!wanted && offMenu !== null) {
+          offMenu();
+          offMenu = null;
+        }
+      };
+      ctx.effect(() => {
+        const offForm = form.subscribe(syncMenu);
+        const offItems = itemsStore?.subscribe(syncMenu);
+        syncMenu();
+        return () => {
+          offForm();
+          offItems?.();
+          offMenu?.();
+          offMenu = null;
+        };
+      }, 'dsh-ui-modify: hidden items menu');
 
       // Settings page styles.
       ctx.effect(() => {
