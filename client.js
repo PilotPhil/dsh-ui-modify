@@ -34,6 +34,7 @@ window.__ModuleLoader__.load({
     const SHOW_MORE_FIELD = 'showSidebarMore';
     const SHOW_TASKS_FIELD = 'showScheduledTasks';
     const SHOW_NEW_SESSION_FIELD = 'showNewSession';
+    const SIDEBAR_LAYOUT_FIELD = 'sidebarButtonLayout';
 
     /**
      * The sidebar renders the More launcher as the Menu root element — a direct
@@ -100,6 +101,49 @@ window.__ModuleLoader__.load({
       '}',
     ].join('\n');
 
+    /**
+     * Reflow the expanded sidebar's two button containers into one 2-column
+     * block. The global panel list (`sidebar.panellist` rows) and the footer
+     * actions (`sidebar.footer.action` entries such as Remote) live in separate
+     * containers, so this promotes the footer container's children into the
+     * sidebar's flex column with `display: contents`, then uses flex `order` to
+     * move both containers together. Each container becomes a matching
+     * 2-column grid, which keeps their columns aligned.
+     * @param {'top' | 'bottom'} placement - where the block sits relative to the workspace list.
+     * @returns {string} CSS text.
+     */
+    function unifiedSidebarCss(placement) {
+      const navOrder = placement === 'top' ? 10 : 20;
+      const footerOrder = placement === 'top' ? 11 : 21;
+      const regionOrder = placement === 'top' ? 20 : 10;
+      const scope = ':has(> nav[class*="panelList"]):not([class*="collapsed"])';
+      return [
+        '/* dsh-ui-modify: unify sidebar buttons into a 2-column block */',
+        `${scope} > [class*="footArea"] { display: contents; }`,
+        `${scope} > [class*="regionArea"] { order: ${regionOrder}; }`,
+        `${scope} > nav[class*="panelList"] {`,
+        '  display: grid !important;',
+        `  order: ${navOrder};`,
+        '  grid-template-columns: repeat(2, minmax(0, 1fr));',
+        '  gap: 4px;',
+        '  margin: 0 0 4px;',
+        '}',
+        `${scope} > nav[class*="panelList"] button[class*="panelRow"] { width: 100%; }`,
+        `${scope} > [class*="footArea"] > [class*="footerActions"] {`,
+        '  display: grid;',
+        `  order: ${footerOrder};`,
+        '  grid-template-columns: repeat(2, minmax(0, 1fr));',
+        '  gap: 4px;',
+        '  margin: 0;',
+        '}',
+        `${scope} > [class*="footArea"] > [class*="footerActions"] > [data-slot="sidebar.footer.action"] { display: contents; }`,
+        `${scope} > [class*="footArea"] > [class*="footerActions"] [class*="dshfm-quota"] { grid-column: 1 / -1; order: 10; }`,
+        `${scope} > [class*="footArea"] > [class*="footerActions"] .dshRemoteSidebarEntry.isWide { width: auto; max-width: none; min-width: 0; }`,
+        `${scope} > [class*="footArea"] > [class*="footerActions"] .dshRemoteSidebarEntry.isWide .dshRemoteModeButton { width: 100%; }`,
+        `${scope} > [class*="footArea"] > [class*="settingsArea"] { order: 30; }`,
+      ].join('\n');
+    }
+
     /** Settings page styles: own class prefix, theme tokens only. */
     const SETTINGS_CSS = `
 .dshuim_section { display: flex; flex-direction: column; gap: 12px; max-width: 760px; color: var(--dsw-alias-label-primary, inherit); }
@@ -119,6 +163,8 @@ window.__ModuleLoader__.load({
 .dshuim_thumb { display: block; width: 16px; height: 16px; border-radius: 50%; background: var(--dsw-alias-label-primary-foreground, #fff); transition: transform .12s ease; }
 .dshuim_switch[aria-checked="false"] .dshuim_thumb { background: var(--dsw-alias-switch-thumb, #fff); }
 .dshuim_switch[aria-checked="true"] .dshuim_thumb { transform: translate(16px); }
+.dshuim_select { font: inherit; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary, inherit); background: var(--dsw-alias-bg-layer-1, transparent); border: .5px solid var(--dsw-alias-border-l2, #b0b0b0); border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+.dshuim_select:disabled { cursor: default; opacity: .5; }
 `;
 
     /** Simplified Chinese copy. */
@@ -132,6 +178,11 @@ window.__ModuleLoader__.load({
       scheduledTasksHint: '显示左侧栏的「自动化任务」入口。隐藏后不影响已创建的自动化任务。',
       newSession: '左侧栏「新会话」按钮',
       newSessionHint: '显示左侧栏顶部的「新会话」按钮。',
+      sidebarLayout: '侧栏按钮布局',
+      sidebarLayoutHint: '把顶部面板按钮和底部动作按钮统一排成 2 列网格。流量卡片会随底部动作区一起移动。',
+      layoutDefault: '保持原样',
+      layoutTop: '顶部 2 列',
+      layoutBottom: '底部 2 列',
       readOnly: '当前部署的设置为只读，无法在这里修改。',
       saveFailed: '设置没有保存成功，请稍后再试。',
     };
@@ -147,6 +198,11 @@ window.__ModuleLoader__.load({
       scheduledTasksHint: 'Show the Automation tasks entry in the left sidebar. Hiding it does not affect existing automation tasks.',
       newSession: 'Sidebar New session button',
       newSessionHint: 'Show the New session button at the top of the left sidebar.',
+      sidebarLayout: 'Sidebar button layout',
+      sidebarLayoutHint: 'Groups the global panel buttons and footer actions into one 2-column grid. The usage card moves with the footer actions.',
+      layoutDefault: 'Keep as is',
+      layoutTop: 'Top, 2 columns',
+      layoutBottom: 'Bottom, 2 columns',
       readOnly: 'This deployment stores settings read-only.',
       saveFailed: 'The setting could not be saved. Try again.',
     };
@@ -198,6 +254,28 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * One labeled select row.
+     * @param {object} props - label, hint, current value, disabled state, and the change callback.
+     * @returns {object} the row element.
+     */
+    function LayoutRow(props) {
+      return h('div', { className: 'dshuim_row' },
+        h('div', { className: 'dshuim_text' },
+          h('span', { className: 'dshuim_label' }, props.label),
+          h('span', { className: 'dshuim_hint' }, props.hint)),
+        h('select', {
+          className: 'dshuim_select',
+          value: props.value,
+          disabled: props.disabled,
+          'aria-label': props.label,
+          onChange: props.onChange,
+        },
+        h('option', { value: 'default' }, props.defaultLabel),
+        h('option', { value: 'top' }, props.topLabel),
+        h('option', { value: 'bottom' }, props.bottomLabel)));
+    }
+
+    /**
      * Settings page: one switch per refinement.
      * @param {object} props - slot props, including the locale reader, the configuration form and the writers.
      * @returns {object} the settings section element.
@@ -213,17 +291,30 @@ window.__ModuleLoader__.load({
       const showsMore = !ready || form.value?.[SHOW_MORE_FIELD] !== false;
       const showsTasks = !ready || form.value?.[SHOW_TASKS_FIELD] !== false;
       const showsNewSession = !ready || form.value?.[SHOW_NEW_SESSION_FIELD] !== false;
+      const layout = ready ? form.value?.[SIDEBAR_LAYOUT_FIELD] ?? 'default' : 'default';
       return h('div', { className: 'dshuim_section' },
         h('h2', { className: 'dshuim_heading' }, t('title')),
         h('p', { className: 'dshuim_intro' }, t('intro')),
         h('div', { className: 'dshuim_group' },
+          h(LayoutRow, {
+            label: t('sidebarLayout'),
+            hint: t('sidebarLayoutHint'),
+            value: layout,
+            disabled: busy,
+            defaultLabel: t('layoutDefault'),
+            topLabel: t('layoutTop'),
+            bottomLabel: t('layoutBottom'),
+            onChange: (event) => {
+              void props.setPreference(SIDEBAR_LAYOUT_FIELD, event.target.value);
+            },
+          }),
           h(PreferenceRow, {
             label: t('newSession'),
             hint: t('newSessionHint'),
             checked: showsNewSession,
             disabled: busy,
             onChange: () => {
-              void props.setFlag(SHOW_NEW_SESSION_FIELD, !showsNewSession);
+              void props.setPreference(SHOW_NEW_SESSION_FIELD, !showsNewSession);
             },
           }),
           h(PreferenceRow, {
@@ -232,7 +323,7 @@ window.__ModuleLoader__.load({
             checked: showsTasks,
             disabled: busy,
             onChange: () => {
-              void props.setFlag(SHOW_TASKS_FIELD, !showsTasks);
+              void props.setPreference(SHOW_TASKS_FIELD, !showsTasks);
             },
           }),
           h(PreferenceRow, {
@@ -241,7 +332,7 @@ window.__ModuleLoader__.load({
             checked: showsMore,
             disabled: busy,
             onChange: () => {
-              void props.setFlag(SHOW_MORE_FIELD, !showsMore);
+              void props.setPreference(SHOW_MORE_FIELD, !showsMore);
             },
           })),
         ready && !writable ? h('p', { className: 'dshuim_note' }, t('readOnly')) : null,
@@ -262,6 +353,14 @@ window.__ModuleLoader__.load({
         return snapshot.status !== 'ready' || snapshot.value?.[field] !== false;
       };
 
+      /** The configured button grouping: `default`, `top`, or `bottom`. */
+      const sidebarLayout = () => {
+        const snapshot = form.getSnapshot();
+        if (snapshot.status !== 'ready') return 'default';
+        const value = snapshot.value?.[SIDEBAR_LAYOUT_FIELD];
+        return value === 'top' || value === 'bottom' ? value : 'default';
+      };
+
       ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-ui-modify: dictionaries');
 
       // Keep the injected rules in sync with the Host configuration. When every
@@ -277,6 +376,8 @@ window.__ModuleLoader__.load({
           if (!shows(SHOW_MORE_FIELD)) rules.push(HIDE_SIDEBAR_MORE_CSS);
           if (!shows(SHOW_TASKS_FIELD)) rules.push(HIDE_SCHEDULED_TASKS_CSS);
           if (!shows(SHOW_NEW_SESSION_FIELD)) rules.push(HIDE_NEW_SESSION_CSS);
+          const layout = sidebarLayout();
+          if (layout !== 'default') rules.push(unifiedSidebarCss(layout));
           tag.textContent = rules.join('\n');
         };
         sync();
@@ -300,13 +401,13 @@ window.__ModuleLoader__.load({
         };
       }, 'dsh-ui-modify: settings styles');
 
-      /** Persist one toggle through the Host configuration form. */
-      const setFlag = async (field, value) => {
+      /** Persist one preference through the Host configuration form. */
+      const setPreference = async (field, value) => {
         if (write.getSnapshot().busy) return;
         write.set({ busy: true, failed: false });
         let accepted = false;
         try {
-          accepted = await form.set(field, value !== false);
+          accepted = await form.set(field, value);
         } catch {
           accepted = false;
         }
@@ -315,7 +416,7 @@ window.__ModuleLoader__.load({
 
       const pageInjection = () => ({
         hooks: { form, write },
-        setFlag,
+        setPreference,
       });
 
       // The page follows the Host namespace: a deployment that does not serve

@@ -17,6 +17,14 @@ export const Config = z.object({
   showScheduledTasks: z.boolean().default(true).volatile(),
   /** Whether the left sidebar keeps its New session button (default: shown). */
   showNewSession: z.boolean().default(true).volatile(),
+  /**
+   * Sidebar button grouping:
+   * - `default`: keep each button where its plugin put it.
+   * - `top`: reflow the global panel list and footer actions into one
+   *   2-column block above the workspace list.
+   * - `bottom`: the same 2-column block below the workspace list.
+   */
+  sidebarButtonLayout: z.union(['default', 'top', 'bottom']).default('default').volatile(),
 })
 
 /**
