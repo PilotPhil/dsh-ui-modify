@@ -8,7 +8,7 @@
 
 - **侧边栏**
   - **按钮可见性**：自动发现侧栏上的所有按钮，逐个控制显示/隐藏；
-  - **更多菜单**：把隐藏的面板按钮和「新会话」放进侧栏「更多」菜单；
+  - **桌面菜单**：把隐藏的面板按钮和「新会话」放进桌面应用顶部菜单栏的新菜单；
   - **按钮布局**：把侧栏按钮统一排成 2 列网格（顶部/底部/保持原样）。
 - **其他区域**：预留，后续针对主界面、对话等区域的优化会显示在这里。
 
@@ -32,15 +32,22 @@
 
 底部动作多数没有注册 `label`，列表中会回退显示插件 id（如 `ds-harness-remote`、`dsh-flowmeter`）。插件卸载或某项消失时，列表和影子注册会自动清理；配置中残留的键在条目重新出现时继续生效。
 
-### 更多菜单
+### 桌面菜单（仅桌面应用）
 
-开启「在『更多』菜单中显示隐藏项」后，隐藏项不会白藏，而是出现在侧栏面板列表末尾「更多」菜单的「已隐藏」分组里：
+开启「在桌面菜单栏中显示隐藏项」后，页面会把隐藏项列表发给 Host，Host 在 **Electron 应用顶层菜单栏**（macOS 屏幕顶部 DeepSeek Harness / 文件 / Edit / Window 所在的那一行）新增一个菜单，标题为「隐藏的侧栏按钮」，菜单项是：
 
-- 隐藏的**面板按钮**（插件、上下文洞察、自动化任务等）和隐藏的**「新会话」**会出现在菜单中；
-- 点击面板行直接打开对应面板；点击「新会话」启动一个新会话；
-- 菜单通过本插件注册的 `sidebar.panellist.actions` 项挂载，仅在**至少有一个隐藏项**时注册，因此不会改变没有隐藏项时的原菜单；
-- 菜单需要「更多」按钮作为入口：当菜单里还有隐藏项时，本插件会保留「更多」按钮，并在设置里锁定该项开关，避免把入口自己藏掉；
-- **底部动作**（`Remote`、流量卡片）不放进菜单：它们不是菜单行组件，塞进菜单会破坏布局和交互，隐藏后仍保持隐藏。
+- 隐藏的**面板按钮**（插件、上下文洞察、自动化任务等）→ 点击打开对应面板；
+- 隐藏的**「新会话」**→ 点击启动一个新会话。
+
+实现方式：
+
+- Client 通过 `POST /dsh-ui-modify/app-menu` 把当前隐藏项（或空列表）发给 Host；
+- Host 用 Electron `Menu` / `MenuItem` 把我们的顶层菜单项插到应用菜单末尾，并监听点击；
+- 点击时 Host 向页面派发 `dsh-ui-modify:menu-command` 事件，Client 再调用 `layout.selectPanel()` 或 `uiWorkspace.startSession()`；
+- 桌面外壳重建菜单（切换语言、更新）后，Host 会定时把菜单项补回去；
+- 没有隐藏项或开关关闭时，菜单项隐藏；仅在桌面应用中生效，普通浏览器（`dsh web`）没有应用菜单，Host 会返回 `desktop: false`。
+
+**底部动作**（`Remote`、流量卡片）不放进桌面菜单：它们不是可导航的面板项，无法用一个通用命令可靠地触发，隐藏后仍保持隐藏。
 
 ### 按钮布局
 
@@ -58,7 +65,7 @@
 | --- | --- | --- |
 | `hiddenSidebarItems` | `[]` | 统一列表中隐藏的条目，键形如 `native:more`、`panellist:plugins`、`footer:<id>` |
 | `sidebarButtonLayout` | `default` | `default` / `top` / `bottom`：侧栏按钮排列 |
-| `showHiddenInMoreMenu` | `false` | 是否把隐藏的面板按钮和「新会话」放进「更多」菜单 |
+| `showHiddenInAppMenu` | `false` | 是否把隐藏的面板按钮和「新会话」放进桌面应用菜单栏 |
 | `showSidebarMore` | `true` | **兼容旧版**：等价于隐藏 `native:more` |
 | `showScheduledTasks` | `true` | **兼容旧版**：等价于隐藏 `panellist:schedules` |
 | `showNewSession` | `true` | **兼容旧版**：等价于隐藏 `native:newSession` |
@@ -74,8 +81,8 @@ Host 半在 `index.js` 中声明 `Config`，并用 `settings.configure({ auto: f
 
 | 文件 | 作用 |
 | --- | --- |
-| `index.js` | Host 半：`Config`（布局枚举、隐藏条目数组、旧版兼容字段）与设置呈现策略。 |
-| `client.js` | Client 半：分类设置页、配置表单订阅、按钮发现、影子注册、布局与隐藏样式。 |
+| `index.js` | Host 半：`Config`、设置呈现策略、Electron 应用菜单与 `/dsh-ui-modify/app-menu` 路由。 |
+| `client.js` | Client 半：分类设置页、配置表单订阅、按钮发现、影子注册、布局与隐藏样式、桌面菜单同步。 |
 | `cordis.patch.yml` | 插入 Host 行 `dsh-ui-modify`。 |
 | `locale/*.json` | 插件在插件管理器中的标题与描述。 |
 | `icon.svg` | 插件图标。 |
