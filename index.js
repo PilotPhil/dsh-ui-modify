@@ -34,6 +34,12 @@ export const Config = z.object({
    * they only apply if the item returns.
    */
   hiddenSidebarItems: z.array(z.string()).default([]).volatile(),
+  /**
+   * Whether the panel/footer button area is folded into a single 26px
+   * expand/collapse bar. The bar itself stays visible so the state can always
+   * be reversed; the workspace list and account row are unaffected.
+   */
+  sidebarButtonsCollapsed: z.boolean().default(false).volatile(),
 })
 
 /**
