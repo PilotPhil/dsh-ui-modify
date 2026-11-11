@@ -11,11 +11,13 @@ import z from '@deepseek-ai/schemastery'
 
 /** Live UI preference projected to the browser. */
 export const Config = z.object({
-  /** Whether the left sidebar keeps its panel-list More button (default: shown). */
+  /**
+   * Legacy single-item preferences. The unified sidebar item list writes
+   * `hiddenSidebarItems` instead; these fields remain so earlier saved
+   * choices keep hiding their item until it is toggled in the list.
+   */
   showSidebarMore: z.boolean().default(true).volatile(),
-  /** Whether the left sidebar keeps its Automation tasks entry (default: shown). */
   showScheduledTasks: z.boolean().default(true).volatile(),
-  /** Whether the left sidebar keeps its New session button (default: shown). */
   showNewSession: z.boolean().default(true).volatile(),
   /**
    * Sidebar button grouping:
@@ -26,9 +28,10 @@ export const Config = z.object({
    */
   sidebarButtonLayout: z.union(['default', 'top', 'bottom']).default('default').volatile(),
   /**
-   * Sidebar items hidden through the dynamic item list, keyed by
-   * `<kind>:<slot entry id>` (`panellist:plugins`, `footer:ds-harness-remote-workspace`).
-   * Unknown or stale keys are harmless: they only apply if the item returns.
+   * Sidebar items hidden through the unified item list, keyed by
+   * `<kind>:<id>`: `native:more`, `native:newSession`, `panellist:plugins`,
+   * `footer:ds-harness-remote-workspace`. Unknown or stale keys are harmless:
+   * they only apply if the item returns.
    */
   hiddenSidebarItems: z.array(z.string()).default([]).volatile(),
 })

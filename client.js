@@ -1,24 +1,24 @@
 /**
  * dsh-ui-modify — targeted UI refinements for the DSH Web interface (Client half).
  *
- * The shipped sidebar shell renders three controls this plugin can hide:
+ * The settings page is grouped by interface area so later refinements can add
+ * their own category. The Sidebar category currently owns:
  *
- * 1. The "More" launcher at the end of the panel list. It exists while
- *    `sidebar.panellist.actions` has registrations and offers no slot for
- *    suppression.
- * 2. The "Automation tasks" panel row (id `schedules`). The sidebar always
- *    renders a row per `sidebar.panellist` entry, and no slot removes it.
- * 3. The "New session" button above the panel list. It is a plain sidebar
- *    button with no visibility slot either.
+ * - an automatically discovered list of every sidebar button (native controls
+ *   and slot registrations), each with its own visibility switch;
+ * - an optional 2-column layout that groups the panel list and footer actions.
  *
- * All three controls are therefore hidden with narrowly scoped stylesheet
- * rules. The Automation tasks rule matches the row's accessible label in every
- * locale the schedule plugin ships, so no other sidebar row is touched.
+ * Native controls are discovered from the shipped shell's stable behavior:
+ * the More launcher exists while `sidebar.panellist.actions` has registrations,
+ * and the New session button is a plain button. Slot-registered panel and
+ * footer entries are discovered from the client slot registry, and hidden ones
+ * are shadowed by a lower-priority registration, so no DOM nodes are moved and
+ * no component is mounted twice.
  *
  * The preferences live in the Host plugin's volatile Config, so they survive
  * restarts and are shared across browsers. This half registers the Settings
- * page that edits them and keeps the injected stylesheet in sync with the
- * configuration form projection.
+ * page that edits them and keeps the injected stylesheet and shadow
+ * registrations in sync with the configuration form projection.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-ui-modify',
@@ -39,6 +39,13 @@ window.__ModuleLoader__.load({
     /** The two slot containers that render sidebar buttons. */
     const PANEL_SLOT = 'sidebar.panellist';
     const FOOTER_SLOT = 'sidebar.footer.action';
+    /** Slot whose registrations make the shipped sidebar render its More launcher. */
+    const PANEL_ACTION_SLOT = 'sidebar.panellist.actions';
+    /** Keys for native controls that are not slot registrations. */
+    const NATIVE_MORE_KEY = 'native:more';
+    const NATIVE_NEW_SESSION_KEY = 'native:newSession';
+    /** The Automation tasks row is a normal panel entry; this is its key. */
+    const SCHEDULES_KEY = 'panellist:schedules';
     /**
      * Lowest priority wins a slot cell. Registering the same id at a lower
      * priority than the original registration shadows it (documented by the
@@ -46,8 +53,6 @@ window.__ModuleLoader__.load({
      * plugin button without moving DOM nodes.
      */
     const SHADOW_PRIORITY = -1e9;
-    /** The Automation tasks row has its own switch; keep it out of the dynamic list. */
-    const DEDICATED_ITEM_KEYS = new Set([`panellist:schedules`]);
 
     /**
      * The sidebar renders the More launcher as the Menu root element — a direct
@@ -62,41 +67,6 @@ window.__ModuleLoader__.load({
       'nav[class*="panelList"] > span[class*="moreAnchor"],',
       'nav[class*="panelList"] > span:has(button[aria-haspopup="menu"]),',
       'nav[class*="panelList"] > button[aria-haspopup="menu"] {',
-      '  display: none !important;',
-      '}',
-    ].join('\n');
-
-    /**
-     * Panel labels the shipped schedule plugin renders for the `schedules`
-     * entry, in every locale its client dictionary ships. Matching the
-     * accessible label keeps the rule stable across hash-prefix changes and
-     * works in both the expanded list and the collapsed rail.
-     */
-    const SCHEDULED_TASKS_LABELS = [
-      '自动化任务',
-      '自動化タスク',
-      'Automation tasks',
-      'Tareas de automatización',
-      "Tâches d'automatisation",
-      'Automatisierungsaufgaben',
-      'Задачи автоматизации',
-      'Tarefas de automação',
-    ];
-
-    /** Escape one label as a CSS string literal. */
-    const cssString = (value) => JSON.stringify(value);
-
-    /**
-     * PanelRow sets the accessible label on its button; the Tooltip wrapper may
-     * be the nav's direct child instead. Both shapes are covered, and the
-     * `:has()` form hides the whole row rather than just the button box.
-     */
-    const HIDE_SCHEDULED_TASKS_CSS = [
-      '/* dsh-ui-modify: hide the left sidebar Automation tasks entry */',
-      `${SCHEDULED_TASKS_LABELS.flatMap((label) => [
-        `nav[class*="panelList"] > button[aria-label=${cssString(label)}]`,
-        `nav[class*="panelList"] > :has(button[aria-label=${cssString(label)}])`,
-      ]).join(',\n')} {`,
       '  display: none !important;',
       '}',
     ].join('\n');
@@ -196,14 +166,29 @@ window.__ModuleLoader__.load({
     /**
      * Read the sidebar's own registrations. Raw entries (not the deduplicated
      * slot view) are used so a hidden item's original registration is still
-     * discoverable while this plugin shadows it.
+     * discoverable while this plugin shadows it. Native controls are discovered
+     * from their shipped conditions: the More launcher exists while its actions
+     * slot has registrations, and the New session button belongs to the shell.
      * @param {object} ctx - the browser plugin context.
-     * @returns {Array<{ key: string, kind: 'panellist' | 'footer', id: string, label: string, order: number }>} discovered items.
+     * @param {(key: string) => string} t - this plugin's locale reader.
+     * @returns {Array<{ key: string, kind: 'native' | 'panellist' | 'footer', id: string, label: string, order: number }>} discovered items.
      */
-    function readSidebarItems(ctx) {
+    function readSidebarItems(ctx, t) {
       const items = [];
       const seen = new Set();
-      const kindRank = { panellist: 0, footer: 1 };
+      const kindRank = { native: 0, panellist: 1, footer: 2 };
+      let actions = [];
+      try {
+        actions = (typeof ctx.slots.entriesOfSlot === 'function'
+          ? ctx.slots.entriesOfSlot(PANEL_ACTION_SLOT)
+          : ctx.slots.entries(PANEL_ACTION_SLOT)) ?? [];
+      } catch {
+        actions = [];
+      }
+      if (actions.length > 0) {
+        items.push({ key: NATIVE_MORE_KEY, kind: 'native', id: 'more', label: t('moreButton'), order: -100 });
+      }
+      items.push({ key: NATIVE_NEW_SESSION_KEY, kind: 'native', id: 'newSession', label: t('newSession'), order: -90 });
       for (const [kind, slot] of [['panellist', PANEL_SLOT], ['footer', FOOTER_SLOT]]) {
         let entries = [];
         try {
@@ -216,7 +201,7 @@ window.__ModuleLoader__.load({
           const id = entry.options?.id;
           if (typeof id !== 'string' || id === '') continue;
           const key = `${kind}:${id}`;
-          if (seen.has(key) || DEDICATED_ITEM_KEYS.has(key)) continue;
+          if (seen.has(key)) continue;
           seen.add(key);
           const registrant = typeof entry.registrant === 'string'
             ? entry.registrant
@@ -240,17 +225,18 @@ window.__ModuleLoader__.load({
      * Observable directory of sidebar items. Labels follow the active locale
      * and the list follows plugin enable/disable changes.
      * @param {object} ctx - the browser plugin context.
+     * @param {(key: string) => string} t - this plugin's locale reader.
      * @returns {{ getSnapshot: () => Array<object>, subscribe: (listener: () => void) => () => void, dispose: () => void } | undefined} the store, or undefined when the slot registry does not expose discovery.
      */
-    function createSidebarItemsStore(ctx) {
+    function createSidebarItemsStore(ctx, t) {
       if (typeof ctx.slots.entries !== 'function' || typeof ctx.slots.subscribe !== 'function') return undefined;
-      let current = readSidebarItems(ctx);
+      let current = readSidebarItems(ctx, t);
       const listeners = new Set();
       const notify = () => {
         for (const listener of [...listeners]) listener();
       };
       const sync = () => {
-        const next = readSidebarItems(ctx);
+        const next = readSidebarItems(ctx, t);
         const unchanged = next.length === current.length
           && next.every((item, index) => item.key === current[index].key && item.label === current[index].label);
         if (unchanged) return;
@@ -259,6 +245,7 @@ window.__ModuleLoader__.load({
       };
       const offPanel = ctx.slots.subscribe(PANEL_SLOT, sync);
       const offFooter = ctx.slots.subscribe(FOOTER_SLOT, sync);
+      const offActions = ctx.slots.subscribe(PANEL_ACTION_SLOT, sync);
       const offLocale = ctx.locale.subscribe(sync);
       return {
         getSnapshot: () => current,
@@ -271,6 +258,7 @@ window.__ModuleLoader__.load({
         dispose() {
           offPanel();
           offFooter();
+          offActions();
           offLocale();
         },
       };
@@ -297,7 +285,10 @@ window.__ModuleLoader__.load({
 .dshuim_switch[aria-checked="true"] .dshuim_thumb { transform: translate(16px); }
 .dshuim_select { font: inherit; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary, inherit); background: var(--dsw-alias-bg-layer-1, transparent); border: .5px solid var(--dsw-alias-border-l2, #b0b0b0); border-radius: 6px; padding: 4px 8px; cursor: pointer; }
 .dshuim_select:disabled { cursor: default; opacity: .5; }
-.dshuim_subheading { margin: 10px 0 0; font-size: 14px; font-weight: 600; line-height: 22px; }
+.dshuim_category { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-top: 14px; border-top: .5px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.3)); }
+.dshuim_categoryTitle { margin: 0; font-size: 15px; font-weight: 600; line-height: 22px; }
+.dshuim_categoryHint { margin: 0; color: var(--dsw-alias-label-secondary, #8b8b8b); font-size: 12px; line-height: 18px; }
+.dshuim_subheading { margin: 6px 0 0; font-size: 13px; font-weight: 600; line-height: 20px; }
 `;
 
     /** Simplified Chinese copy. */
@@ -305,20 +296,22 @@ window.__ModuleLoader__.load({
       nav: '界面优化',
       title: '界面优化',
       intro: '按你的习惯调整 DSH 主界面的显示细节。偏好保存在当前 profile 的插件配置中。',
-      moreButton: '左侧栏「更多」按钮',
-      moreButtonHint: '显示左侧栏面板列表末尾的「更多」按钮。',
-      scheduledTasks: '左侧栏「自动化任务」',
-      scheduledTasksHint: '显示左侧栏的「自动化任务」入口。隐藏后不影响已创建的自动化任务。',
-      newSession: '左侧栏「新会话」按钮',
-      newSessionHint: '显示左侧栏顶部的「新会话」按钮。',
-      sidebarLayout: '侧栏按钮布局',
-      sidebarLayoutHint: '把顶部面板按钮和底部动作按钮统一排成 2 列网格。流量卡片会随底部动作区一起移动。',
+      categorySidebar: '侧边栏',
+      categorySidebarHint: '控制左侧栏按钮的显示与排列。',
+      subsectionVisibility: '按钮可见性',
+      subsectionVisibilityHint: '自动发现侧栏上的原生控件、面板按钮与底部动作，逐个控制是否显示。',
+      subsectionLayout: '按钮布局',
+      categoryOther: '其他区域',
+      categoryOtherHint: '后续针对主界面、对话或其他区域的优化会显示在这里。',
+      moreButton: '更多按钮',
+      newSession: '新会话按钮',
+      sidebarLayout: '按钮排列',
+      sidebarLayoutHint: '把面板按钮和底部动作按钮统一排成 2 列网格。流量卡片会随底部动作区一起移动。',
       layoutDefault: '保持原样',
       layoutTop: '顶部 2 列',
       layoutBottom: '底部 2 列',
-      otherButtons: '其他侧栏按钮',
-      otherButtonsHint: '自动发现侧栏上的面板按钮和底部动作，逐个控制是否显示。',
-      noOtherButtons: '当前没有发现其他侧栏按钮。',
+      noSidebarButtons: '当前没有发现侧栏按钮。',
+      kindNative: '原生控件',
       kindPanel: '面板',
       kindFooter: '底部动作',
       readOnly: '当前部署的设置为只读，无法在这里修改。',
@@ -330,20 +323,22 @@ window.__ModuleLoader__.load({
       nav: 'UI modifications',
       title: 'UI modifications',
       intro: "Adjust how the DSH interface looks. Preferences are saved in this profile's plugin configuration.",
-      moreButton: 'Sidebar More button',
-      moreButtonHint: 'Show the More button at the end of the sidebar panel list.',
-      scheduledTasks: 'Sidebar Automation tasks entry',
-      scheduledTasksHint: 'Show the Automation tasks entry in the left sidebar. Hiding it does not affect existing automation tasks.',
-      newSession: 'Sidebar New session button',
-      newSessionHint: 'Show the New session button at the top of the left sidebar.',
-      sidebarLayout: 'Sidebar button layout',
-      sidebarLayoutHint: 'Groups the global panel buttons and footer actions into one 2-column grid. The usage card moves with the footer actions.',
+      categorySidebar: 'Sidebar',
+      categorySidebarHint: 'Control which sidebar buttons are shown and how they are arranged.',
+      subsectionVisibility: 'Button visibility',
+      subsectionVisibilityHint: 'Detects native controls, panel buttons, and footer actions so each can be shown or hidden.',
+      subsectionLayout: 'Button layout',
+      categoryOther: 'Other areas',
+      categoryOtherHint: 'Future refinements for the main view, conversation, and other areas will appear here.',
+      moreButton: 'More button',
+      newSession: 'New session button',
+      sidebarLayout: 'Button arrangement',
+      sidebarLayoutHint: 'Groups panel buttons and footer actions into one 2-column grid. The usage card moves with the footer actions.',
       layoutDefault: 'Keep as is',
       layoutTop: 'Top, 2 columns',
       layoutBottom: 'Bottom, 2 columns',
-      otherButtons: 'Other sidebar buttons',
-      otherButtonsHint: 'Detects panel buttons and footer actions so each can be shown or hidden.',
-      noOtherButtons: 'No other sidebar buttons were detected.',
+      noSidebarButtons: 'No sidebar buttons were detected.',
+      kindNative: 'Native control',
       kindPanel: 'Panel',
       kindFooter: 'Footer action',
       readOnly: 'This deployment stores settings read-only.',
@@ -419,8 +414,8 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Settings page: one switch per refinement.
-     * @param {object} props - slot props, including the locale reader, the configuration form and the writers.
+     * Settings page, grouped by interface area.
+     * @param {object} props - slot props, including the locale reader, the configuration form, the item directory and the writers.
      * @returns {object} the settings section element.
      */
     function SettingsSection(props) {
@@ -430,72 +425,56 @@ window.__ModuleLoader__.load({
       const ready = form.status === 'ready';
       const writable = ready && form.writable === true;
       const busy = writes.busy || !writable;
-      // A missing value means the Config default: the control is shown.
-      const showsMore = !ready || form.value?.[SHOW_MORE_FIELD] !== false;
-      const showsTasks = !ready || form.value?.[SHOW_TASKS_FIELD] !== false;
-      const showsNewSession = !ready || form.value?.[SHOW_NEW_SESSION_FIELD] !== false;
       const layout = ready ? form.value?.[SIDEBAR_LAYOUT_FIELD] ?? 'default' : 'default';
       const items = props.useItems((value) => value);
       const hiddenKeys = new Set(ready && Array.isArray(form.value?.[HIDDEN_ITEMS_FIELD])
         ? form.value[HIDDEN_ITEMS_FIELD]
         : []);
+      // Legacy single-item fields keep their old behavior until the user
+      // toggles that item in the unified list, which clears the legacy field.
+      if (ready && form.value?.[SHOW_MORE_FIELD] === false) hiddenKeys.add(NATIVE_MORE_KEY);
+      if (ready && form.value?.[SHOW_NEW_SESSION_FIELD] === false) hiddenKeys.add(NATIVE_NEW_SESSION_KEY);
+      if (ready && form.value?.[SHOW_TASKS_FIELD] === false) hiddenKeys.add(SCHEDULES_KEY);
+      const kindLabel = (kind) => kind === 'native'
+        ? t('kindNative')
+        : kind === 'panellist' ? t('kindPanel') : t('kindFooter');
       return h('div', { className: 'dshuim_section' },
         h('h2', { className: 'dshuim_heading' }, t('title')),
         h('p', { className: 'dshuim_intro' }, t('intro')),
-        h('div', { className: 'dshuim_group' },
-          h(LayoutRow, {
-            label: t('sidebarLayout'),
-            hint: t('sidebarLayoutHint'),
-            value: layout,
-            disabled: busy,
-            defaultLabel: t('layoutDefault'),
-            topLabel: t('layoutTop'),
-            bottomLabel: t('layoutBottom'),
-            onChange: (event) => {
-              void props.setPreference(SIDEBAR_LAYOUT_FIELD, event.target.value);
-            },
-          }),
-          h(PreferenceRow, {
-            label: t('newSession'),
-            hint: t('newSessionHint'),
-            checked: showsNewSession,
-            disabled: busy,
-            onChange: () => {
-              void props.setPreference(SHOW_NEW_SESSION_FIELD, !showsNewSession);
-            },
-          }),
-          h(PreferenceRow, {
-            label: t('scheduledTasks'),
-            hint: t('scheduledTasksHint'),
-            checked: showsTasks,
-            disabled: busy,
-            onChange: () => {
-              void props.setPreference(SHOW_TASKS_FIELD, !showsTasks);
-            },
-          }),
-          h(PreferenceRow, {
-            label: t('moreButton'),
-            hint: t('moreButtonHint'),
-            checked: showsMore,
-            disabled: busy,
-            onChange: () => {
-              void props.setPreference(SHOW_MORE_FIELD, !showsMore);
-            },
-          })),
-        h('h3', { className: 'dshuim_subheading' }, t('otherButtons')),
-        h('p', { className: 'dshuim_intro' }, t('otherButtonsHint')),
-        items.length === 0
-          ? h('p', { className: 'dshuim_note' }, t('noOtherButtons'))
-          : h('div', { className: 'dshuim_group' }, items.map((item) => h(PreferenceRow, {
-            key: item.key,
-            label: item.label,
-            hint: `${item.kind === 'panellist' ? t('kindPanel') : t('kindFooter')} · ${item.id}`,
-            checked: !hiddenKeys.has(item.key),
-            disabled: busy,
-            onChange: () => {
-              void props.setItemHidden(item.key, hiddenKeys.has(item.key));
-            },
-          }))),
+        h('section', { className: 'dshuim_category' },
+          h('h3', { className: 'dshuim_categoryTitle' }, t('categorySidebar')),
+          h('p', { className: 'dshuim_categoryHint' }, t('categorySidebarHint')),
+          h('h4', { className: 'dshuim_subheading' }, t('subsectionVisibility')),
+          h('p', { className: 'dshuim_categoryHint' }, t('subsectionVisibilityHint')),
+          items.length === 0
+            ? h('p', { className: 'dshuim_note' }, t('noSidebarButtons'))
+            : h('div', { className: 'dshuim_group' }, items.map((item) => h(PreferenceRow, {
+              key: item.key,
+              label: item.label,
+              hint: item.kind === 'native' ? kindLabel(item.kind) : `${kindLabel(item.kind)} · ${item.id}`,
+              checked: !hiddenKeys.has(item.key),
+              disabled: busy,
+              onChange: () => {
+                void props.setItemHidden(item.key, hiddenKeys.has(item.key));
+              },
+            }))),
+          h('h4', { className: 'dshuim_subheading' }, t('subsectionLayout')),
+          h('div', { className: 'dshuim_group' },
+            h(LayoutRow, {
+              label: t('sidebarLayout'),
+              hint: t('sidebarLayoutHint'),
+              value: layout,
+              disabled: busy,
+              defaultLabel: t('layoutDefault'),
+              topLabel: t('layoutTop'),
+              bottomLabel: t('layoutBottom'),
+              onChange: (event) => {
+                void props.setPreference(SIDEBAR_LAYOUT_FIELD, event.target.value);
+              },
+            }))),
+        h('section', { className: 'dshuim_category' },
+          h('h3', { className: 'dshuim_categoryTitle' }, t('categoryOther')),
+          h('p', { className: 'dshuim_categoryHint' }, t('categoryOtherHint'))),
         ready && !writable ? h('p', { className: 'dshuim_note' }, t('readOnly')) : null,
         writes.failed ? h('p', { className: 'dshuim_note dshuim_failed', role: 'status' }, t('saveFailed')) : null);
     }
@@ -507,7 +486,9 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       const form = ctx.configForms.get(SETTINGS_NS);
       const write = createWriteState();
-      const itemsStore = createSidebarItemsStore(ctx);
+      ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-ui-modify: dictionaries');
+      const t = ctx.locale.bind(NS);
+      const itemsStore = createSidebarItemsStore(ctx, t);
       const emptyItems = [];
       const items = itemsStore ?? {
         getSnapshot: () => emptyItems,
@@ -517,10 +498,25 @@ window.__ModuleLoader__.load({
         ctx.effect(() => () => itemsStore.dispose(), 'dsh-ui-modify: sidebar item discovery');
       }
 
-      /** Whether the Host configuration keeps one control visible. */
-      const shows = (field) => {
-        const snapshot = form.getSnapshot();
-        return snapshot.status !== 'ready' || snapshot.value?.[field] !== false;
+      /** Legacy single-item fields mapped to the keys used by the unified list. */
+      const legacyFieldOf = (key) => key === NATIVE_MORE_KEY
+        ? SHOW_MORE_FIELD
+        : key === NATIVE_NEW_SESSION_KEY
+          ? SHOW_NEW_SESSION_FIELD
+          : key === SCHEDULES_KEY ? SHOW_TASKS_FIELD : undefined;
+
+      /** Effective hidden set: the unified list plus legacy false-valued fields. */
+      const hiddenKeysOf = (snapshot = form.getSnapshot()) => {
+        const hidden = new Set();
+        if (snapshot.status !== 'ready') return hidden;
+        const list = snapshot.value?.[HIDDEN_ITEMS_FIELD];
+        if (Array.isArray(list)) {
+          for (const key of list) if (typeof key === 'string') hidden.add(key);
+        }
+        if (snapshot.value?.[SHOW_MORE_FIELD] === false) hidden.add(NATIVE_MORE_KEY);
+        if (snapshot.value?.[SHOW_NEW_SESSION_FIELD] === false) hidden.add(NATIVE_NEW_SESSION_KEY);
+        if (snapshot.value?.[SHOW_TASKS_FIELD] === false) hidden.add(SCHEDULES_KEY);
+        return hidden;
       };
 
       /** The configured button grouping: `default`, `top`, or `bottom`. */
@@ -553,9 +549,7 @@ window.__ModuleLoader__.load({
         syncingShadows = true;
         try {
           const snapshot = form.getSnapshot();
-          const hidden = new Set(Array.isArray(snapshot.value?.[HIDDEN_ITEMS_FIELD])
-            ? snapshot.value[HIDDEN_ITEMS_FIELD].filter((key) => typeof key === 'string')
-            : []);
+          const hidden = hiddenKeysOf(snapshot);
           for (const [key, disposer] of [...shadows]) {
             const [kind, ...rest] = key.split(':');
             const id = rest.join(':');
@@ -598,10 +592,8 @@ window.__ModuleLoader__.load({
         }
       };
 
-      ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-ui-modify: dictionaries');
-
       // Keep the injected rules in sync with the Host configuration. The marker
-      // rule is always present; it only matches rows shadowed by the dynamic
+      // rule is always present; it only matches rows shadowed by the unified
       // item list.
       ctx.effect(() => {
         if (typeof document === 'undefined') return () => {};
@@ -610,10 +602,10 @@ window.__ModuleLoader__.load({
         tag.dataset.pluginCss = 'dsh-ui-modify/sidebar-visibility.css';
         document.head.appendChild(tag);
         const sync = () => {
+          const hidden = hiddenKeysOf();
           const rules = [HIDE_SHADOWED_PANEL_CSS];
-          if (!shows(SHOW_MORE_FIELD)) rules.push(HIDE_SIDEBAR_MORE_CSS);
-          if (!shows(SHOW_TASKS_FIELD)) rules.push(HIDE_SCHEDULED_TASKS_CSS);
-          if (!shows(SHOW_NEW_SESSION_FIELD)) rules.push(HIDE_NEW_SESSION_CSS);
+          if (hidden.has(NATIVE_MORE_KEY)) rules.push(HIDE_SIDEBAR_MORE_CSS);
+          if (hidden.has(NATIVE_NEW_SESSION_KEY)) rules.push(HIDE_NEW_SESSION_CSS);
           const layout = sidebarLayout();
           if (layout !== 'default') rules.push(unifiedSidebarCss(layout));
           tag.textContent = rules.join('\n');
@@ -662,7 +654,7 @@ window.__ModuleLoader__.load({
 
       /** Persist one preference through the Host configuration form. */
       const setPreference = async (field, value) => {
-        if (write.getSnapshot().busy) return;
+        if (write.getSnapshot().busy) return false;
         write.set({ busy: true, failed: false });
         let accepted = false;
         try {
@@ -671,9 +663,10 @@ window.__ModuleLoader__.load({
           accepted = false;
         }
         write.set({ busy: false, failed: !accepted });
+        return accepted;
       };
 
-      /** Show or hide one dynamically discovered sidebar item. */
+      /** Show or hide one discovered sidebar item. */
       const setItemHidden = async (key, show) => {
         const snapshot = form.getSnapshot();
         if (snapshot.status !== 'ready') return;
@@ -683,8 +676,20 @@ window.__ModuleLoader__.load({
         const next = show
           ? current.filter((value) => value !== key)
           : current.includes(key) ? current : [...current, key];
-        if (next.length === current.length && next.every((value, index) => value === current[index])) return;
-        await setPreference(HIDDEN_ITEMS_FIELD, next);
+        const changed = !(next.length === current.length
+          && next.every((value, index) => value === current[index]));
+        if (changed) {
+          const accepted = await setPreference(HIDDEN_ITEMS_FIELD, next);
+          if (!accepted) return;
+        }
+        // Showing a legacy-hidden item must also clear its old dedicated field.
+        const legacyField = legacyFieldOf(key);
+        if (show && legacyField !== undefined) {
+          const latest = form.getSnapshot();
+          if (latest.status === 'ready' && latest.value?.[legacyField] === false) {
+            await setPreference(legacyField, true);
+          }
+        }
       };
 
       const pageInjection = () => ({
