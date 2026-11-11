@@ -36,7 +36,6 @@ window.__ModuleLoader__.load({
     const SHOW_NEW_SESSION_FIELD = 'showNewSession';
     const SIDEBAR_LAYOUT_FIELD = 'sidebarButtonLayout';
     const HIDDEN_ITEMS_FIELD = 'hiddenSidebarItems';
-    const SHOW_HIDDEN_IN_APP_MENU_FIELD = 'showHiddenInAppMenu';
     /** The two slot containers that render sidebar buttons. */
     const PANEL_SLOT = 'sidebar.panellist';
     const FOOTER_SLOT = 'sidebar.footer.action';
@@ -151,46 +150,6 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Effective hidden set from one configuration-form snapshot: the unified
-     * list plus legacy single-item fields still set to false.
-     * @param {object} snapshot - the configuration form snapshot.
-     * @returns {Set<string>} hidden item keys.
-     */
-    function hiddenKeysOf(snapshot) {
-      const hidden = new Set();
-      if (snapshot?.status !== 'ready') return hidden;
-      const list = snapshot.value?.[HIDDEN_ITEMS_FIELD];
-      if (Array.isArray(list)) {
-        for (const key of list) if (typeof key === 'string') hidden.add(key);
-      }
-      if (snapshot.value?.[SHOW_MORE_FIELD] === false) hidden.add(NATIVE_MORE_KEY);
-      if (snapshot.value?.[SHOW_NEW_SESSION_FIELD] === false) hidden.add(NATIVE_NEW_SESSION_KEY);
-      if (snapshot.value?.[SHOW_TASKS_FIELD] === false) hidden.add(SCHEDULES_KEY);
-      return hidden;
-    }
-
-    /**
-     * Whether a hidden item can be offered as a row in the sidebar's More menu.
-     * Panels navigate somewhere; the New session control is an action. Footer
-     * widgets (Remote, usage card) are not menu rows.
-     * @param {object} item - one discovered item.
-     * @returns {boolean} whether the item belongs in the menu section.
-     */
-    function isMenuEligible(item) {
-      return item.kind === 'panellist' || item.key === NATIVE_NEW_SESSION_KEY;
-    }
-
-    /**
-     * Hidden items that should appear in the More menu section.
-     * @param {Array<object>} items - discovered sidebar items.
-     * @param {Set<string>} hidden - effective hidden keys.
-     * @returns {Array<object>} hidden menu-eligible items.
-     */
-    function hiddenMenuItems(items, hidden) {
-      return items.filter((item) => item.key !== NATIVE_MORE_KEY && isMenuEligible(item) && hidden.has(item.key));
-    }
-
-    /**
      * Resolve one registered slot label (string or thunk) without throwing.
      * @param {unknown} option - the registration's label option.
      * @returns {string | undefined} the resolved label.
@@ -253,7 +212,6 @@ window.__ModuleLoader__.load({
             id,
             label: resolveItemLabel(entry.options?.label) ?? registrant ?? id,
             order: entry.options?.order ?? 0,
-            icon: entry.component,
           });
         }
       }
@@ -342,10 +300,6 @@ window.__ModuleLoader__.load({
       categorySidebarHint: '控制左侧栏按钮的显示与排列。',
       subsectionVisibility: '按钮可见性',
       subsectionVisibilityHint: '自动发现侧栏上的原生控件、面板按钮与底部动作，逐个控制是否显示。',
-      subsectionAppMenu: '桌面菜单',
-      hiddenInAppMenu: '在桌面菜单栏中显示隐藏项',
-      hiddenInAppMenuHint: '在桌面应用顶部菜单栏新增一个菜单，列出隐藏的面板按钮与「新会话」。点击可打开面板或新建会话；仅在桌面应用中生效，底部动作与流量卡片不放入菜单。',
-      appMenuTitle: '隐藏的侧栏按钮',
       subsectionLayout: '按钮布局',
       categoryOther: '其他区域',
       categoryOtherHint: '后续针对主界面、对话或其他区域的优化会显示在这里。',
@@ -373,10 +327,6 @@ window.__ModuleLoader__.load({
       categorySidebarHint: 'Control which sidebar buttons are shown and how they are arranged.',
       subsectionVisibility: 'Button visibility',
       subsectionVisibilityHint: 'Detects native controls, panel buttons, and footer actions so each can be shown or hidden.',
-      subsectionAppMenu: 'Desktop menu',
-      hiddenInAppMenu: 'Show hidden items in the desktop menu bar',
-      hiddenInAppMenuHint: 'Adds a new menu to the desktop application’s menu bar listing hidden panel buttons and the New session action. Clicking opens the panel or starts a session. Desktop only; footer actions and the usage card are not added.',
-      appMenuTitle: 'Hidden sidebar buttons',
       subsectionLayout: 'Button layout',
       categoryOther: 'Other areas',
       categoryOtherHint: 'Future refinements for the main view, conversation, and other areas will appear here.',
@@ -477,8 +427,14 @@ window.__ModuleLoader__.load({
       const busy = writes.busy || !writable;
       const layout = ready ? form.value?.[SIDEBAR_LAYOUT_FIELD] ?? 'default' : 'default';
       const items = props.useItems((value) => value);
-      const hiddenKeys = hiddenKeysOf(form);
-      const appMenuFeature = ready && form.value?.[SHOW_HIDDEN_IN_APP_MENU_FIELD] === true;
+      const hiddenKeys = new Set(ready && Array.isArray(form.value?.[HIDDEN_ITEMS_FIELD])
+        ? form.value[HIDDEN_ITEMS_FIELD]
+        : []);
+      // Legacy single-item fields keep their old behavior until the user
+      // toggles that item in the unified list, which clears the legacy field.
+      if (ready && form.value?.[SHOW_MORE_FIELD] === false) hiddenKeys.add(NATIVE_MORE_KEY);
+      if (ready && form.value?.[SHOW_NEW_SESSION_FIELD] === false) hiddenKeys.add(NATIVE_NEW_SESSION_KEY);
+      if (ready && form.value?.[SHOW_TASKS_FIELD] === false) hiddenKeys.add(SCHEDULES_KEY);
       const kindLabel = (kind) => kind === 'native'
         ? t('kindNative')
         : kind === 'panellist' ? t('kindPanel') : t('kindFooter');
@@ -502,17 +458,6 @@ window.__ModuleLoader__.load({
                 void props.setItemHidden(item.key, hiddenKeys.has(item.key));
               },
             }))),
-          h('h4', { className: 'dshuim_subheading' }, t('subsectionAppMenu')),
-          h('div', { className: 'dshuim_group' },
-            h(PreferenceRow, {
-              label: t('hiddenInAppMenu'),
-              hint: t('hiddenInAppMenuHint'),
-              checked: appMenuFeature,
-              disabled: busy,
-              onChange: () => {
-                void props.setPreference(SHOW_HIDDEN_IN_APP_MENU_FIELD, !appMenuFeature);
-              },
-            })),
           h('h4', { className: 'dshuim_subheading' }, t('subsectionLayout')),
           h('div', { className: 'dshuim_group' },
             h(LayoutRow, {
@@ -559,6 +504,20 @@ window.__ModuleLoader__.load({
         : key === NATIVE_NEW_SESSION_KEY
           ? SHOW_NEW_SESSION_FIELD
           : key === SCHEDULES_KEY ? SHOW_TASKS_FIELD : undefined;
+
+      /** Effective hidden set: the unified list plus legacy false-valued fields. */
+      const hiddenKeysOf = (snapshot = form.getSnapshot()) => {
+        const hidden = new Set();
+        if (snapshot.status !== 'ready') return hidden;
+        const list = snapshot.value?.[HIDDEN_ITEMS_FIELD];
+        if (Array.isArray(list)) {
+          for (const key of list) if (typeof key === 'string') hidden.add(key);
+        }
+        if (snapshot.value?.[SHOW_MORE_FIELD] === false) hidden.add(NATIVE_MORE_KEY);
+        if (snapshot.value?.[SHOW_NEW_SESSION_FIELD] === false) hidden.add(NATIVE_NEW_SESSION_KEY);
+        if (snapshot.value?.[SHOW_TASKS_FIELD] === false) hidden.add(SCHEDULES_KEY);
+        return hidden;
+      };
 
       /** The configured button grouping: `default`, `top`, or `bottom`. */
       const sidebarLayout = () => {
@@ -643,8 +602,7 @@ window.__ModuleLoader__.load({
         tag.dataset.pluginCss = 'dsh-ui-modify/sidebar-visibility.css';
         document.head.appendChild(tag);
         const sync = () => {
-          const snapshot = form.getSnapshot();
-          const hidden = hiddenKeysOf(snapshot);
+          const hidden = hiddenKeysOf();
           const rules = [HIDE_SHADOWED_PANEL_CSS];
           if (hidden.has(NATIVE_MORE_KEY)) rules.push(HIDE_SIDEBAR_MORE_CSS);
           if (hidden.has(NATIVE_NEW_SESSION_KEY)) rules.push(HIDE_NEW_SESSION_CSS);
@@ -654,10 +612,8 @@ window.__ModuleLoader__.load({
         };
         sync();
         const off = form.subscribe(sync);
-        const offItems = itemsStore?.subscribe(sync);
         return () => {
           off();
-          offItems?.();
           tag.remove();
         };
       }, 'dsh-ui-modify: sidebar visibility');
@@ -682,69 +638,6 @@ window.__ModuleLoader__.load({
           shadows.clear();
         };
       }, 'dsh-ui-modify: sidebar item shadows');
-
-      // Feed the desktop application menu with the hidden items. The Host half
-      // owns the Electron menu; this page posts the current list and listens for
-      // menu clicks. A browser-only host answers desktop:false.
-      const APP_MENU_ROUTE = '/dsh-ui-modify/app-menu';
-      let lastAppMenuPayload = '';
-      const postAppMenu = async (payload) => {
-        try {
-          const response = await fetch(APP_MENU_ROUTE, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          return response.ok;
-        } catch {
-          return false;
-        }
-      };
-      const syncAppMenu = () => {
-        const snapshot = form.getSnapshot();
-        const enabled = snapshot.status === 'ready'
-          && snapshot.value?.[SHOW_HIDDEN_IN_APP_MENU_FIELD] === true;
-        const rows = enabled ? hiddenMenuItems(items.getSnapshot(), hiddenKeysOf(snapshot)) : [];
-        const payload = {
-          title: t('appMenuTitle'),
-          items: rows.map((item) => item.kind === 'panellist'
-            ? { type: 'panel', id: item.id, label: item.label }
-            : { type: 'newSession', label: item.label }),
-        };
-        const serialized = JSON.stringify(payload);
-        if (serialized === lastAppMenuPayload) return;
-        lastAppMenuPayload = serialized;
-        void postAppMenu(payload);
-      };
-      ctx.effect(() => {
-        const offForm = form.subscribe(syncAppMenu);
-        const offItems = itemsStore?.subscribe(syncAppMenu);
-        const offLocale = ctx.locale.subscribe(syncAppMenu);
-        syncAppMenu();
-        return () => {
-          offForm();
-          offItems?.();
-          offLocale();
-          lastAppMenuPayload = '';
-          void postAppMenu({ title: t('appMenuTitle'), items: [] });
-        };
-      }, 'dsh-ui-modify: desktop app menu');
-
-      // Native menu clicks execute this event in the page; route it to services.
-      ctx.effect(() => {
-        if (typeof window === 'undefined') return () => {};
-        const onCommand = (event) => {
-          const detail = event.detail;
-          if (detail === null || typeof detail !== 'object') return;
-          if (detail.type === 'panel' && typeof detail.id === 'string') {
-            ctx.get?.('layout')?.selectPanel?.(detail.id);
-          } else if (detail.type === 'newSession') {
-            ctx.get?.('uiWorkspace')?.startSession?.();
-          }
-        };
-        window.addEventListener('dsh-ui-modify:menu-command', onCommand);
-        return () => window.removeEventListener('dsh-ui-modify:menu-command', onCommand);
-      }, 'dsh-ui-modify: desktop menu commands');
 
       // Settings page styles.
       ctx.effect(() => {
