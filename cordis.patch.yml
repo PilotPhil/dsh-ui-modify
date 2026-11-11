@@ -1,0 +1,7 @@
+# Bundle patch: one Host row so the bundle can be selected, its Host Config is
+# projectable into Settings, and its Client module is served. The durable
+# preference lives in the Host Config (see index.js); the rendering lives in
+# client.js.
+- insert:
+    - id: dsh-ui-modify
+      name: dsh-ui-modify
