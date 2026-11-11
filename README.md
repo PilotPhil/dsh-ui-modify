@@ -39,6 +39,17 @@ DSH 左侧栏的面板列表末尾有一个「更多」按钮（`更多` / `More
 
 > 注意：流量卡片（flowmeter）属于底部动作区，会随「顶部 2 列」一起移动到顶部；账号与设置行始终保留在最底部。
 
+### 5. 动态发现并逐个隐藏侧栏按钮
+
+侧栏上的按钮并不都来自同一处：面板按钮注册在 `sidebar.panellist`，`Remote` 等底部动作注册在 `sidebar.footer.action`。本插件会实时读取这两个 slot 的注册项，在设置页的「其他侧栏按钮」下列出发现的每一项（面板按钮、底部动作、流量卡片等），每一项一个开关。
+
+- 列表随插件启用/禁用、界面语言变化自动更新；
+- 面板按钮隐藏时使用同 id、更低优先级的“影子”注册替换其图标，再由一条标记样式隐藏整行；面板本身仍可通过其他入口打开，功能不受影响；
+- 底部动作隐藏时使用影子注册渲染空内容，原组件不再挂载；
+- 卸载或关闭某项后，原始注册自动恢复，不留残留。
+
+「自动化任务」有单独的开关（见功能 2），因此不重复出现在动态列表中。「更多」和「新会话」也不是 slot 注册项，保留各自的开关。
+
 ## 偏好存储
 
 开关写入本插件在当前 profile 中的 Host 配置字段：
@@ -49,6 +60,7 @@ DSH 左侧栏的面板列表末尾有一个「更多」按钮（`更多` / `More
 | `showScheduledTasks` | `true` | 是否显示左侧栏「自动化任务」入口 |
 | `showNewSession` | `true` | 是否显示左侧栏「新会话」按钮 |
 | `sidebarButtonLayout` | `default` | `default` / `top` / `bottom`：侧栏按钮的统一排列方式 |
+| `hiddenSidebarItems` | `[]` | 动态列表中隐藏的条目，键形如 `panellist:<id>` / `footer:<id>` |
 
 - 字段都声明为 `volatile`，修改后立即生效，不会重启插件；
 - 配置由 DSH 的设置编辑器持久化到当前 profile 的补丁层，重启应用、换浏览器都不会丢失；
@@ -60,8 +72,8 @@ Host 半在 `index.js` 中声明 `Config`，并用 `settings.configure({ auto: f
 
 | 文件 | 作用 |
 | --- | --- |
-| `index.js` | Host 半：`Config`（三个 volatile 布尔字段）与设置呈现策略。 |
-| `client.js` | Client 半：设置页（`settings.section`）、配置表单订阅、三条隐藏规则。 |
+| `index.js` | Host 半：`Config`（可见性布尔字段、布局枚举、隐藏条目数组）与设置呈现策略。 |
+| `client.js` | Client 半：设置页（`settings.section`）、配置表单订阅、隐藏规则、动态条目发现与影子注册。 |
 | `cordis.patch.yml` | 插入 Host 行 `dsh-ui-modify`。 |
 | `locale/*.json` | 插件在插件管理器中的标题与描述。 |
 | `icon.svg` | 插件图标。 |
@@ -77,4 +89,4 @@ plugin_manager install_bundle <本目录绝对路径>
 ```
 
 Host 半依赖 `@deepseek-ai/schemastery`（已写入 `dependencies`），在目录内执行 `npm install` 即可。
-安装后可在「设置 → 界面优化」看到三个开关。
+安装后可在「设置 → 界面优化」看到开关、布局选择与动态按钮列表。

@@ -25,6 +25,12 @@ export const Config = z.object({
    * - `bottom`: the same 2-column block below the workspace list.
    */
   sidebarButtonLayout: z.union(['default', 'top', 'bottom']).default('default').volatile(),
+  /**
+   * Sidebar items hidden through the dynamic item list, keyed by
+   * `<kind>:<slot entry id>` (`panellist:plugins`, `footer:ds-harness-remote-workspace`).
+   * Unknown or stale keys are harmless: they only apply if the item returns.
+   */
+  hiddenSidebarItems: z.array(z.string()).default([]).volatile(),
 })
 
 /**

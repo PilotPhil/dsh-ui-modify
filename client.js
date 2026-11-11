@@ -35,6 +35,19 @@ window.__ModuleLoader__.load({
     const SHOW_TASKS_FIELD = 'showScheduledTasks';
     const SHOW_NEW_SESSION_FIELD = 'showNewSession';
     const SIDEBAR_LAYOUT_FIELD = 'sidebarButtonLayout';
+    const HIDDEN_ITEMS_FIELD = 'hiddenSidebarItems';
+    /** The two slot containers that render sidebar buttons. */
+    const PANEL_SLOT = 'sidebar.panellist';
+    const FOOTER_SLOT = 'sidebar.footer.action';
+    /**
+     * Lowest priority wins a slot cell. Registering the same id at a lower
+     * priority than the original registration shadows it (documented by the
+     * slot registry), which is how a per-item switch removes an arbitrary
+     * plugin button without moving DOM nodes.
+     */
+    const SHADOW_PRIORITY = -1e9;
+    /** The Automation tasks row has its own switch; keep it out of the dynamic list. */
+    const DEDICATED_ITEM_KEYS = new Set([`panellist:schedules`]);
 
     /**
      * The sidebar renders the More launcher as the Menu root element — a direct
@@ -144,6 +157,125 @@ window.__ModuleLoader__.load({
       ].join('\n');
     }
 
+    /**
+     * Marker rendered by a shadowed panel glyph. The matching rule hides the
+     * containing panel row, which keeps the row's button, label and click
+     * behavior owned by the shipped sidebar while making it invisible.
+     */
+    const HIDE_SHADOWED_PANEL_CSS = [
+      '/* dsh-ui-modify: hide a panel row hidden through the dynamic item list */',
+      'nav[class*="panelList"] > :has([data-dshuim-hidden-panel]) {',
+      '  display: none !important;',
+      '}',
+    ].join('\n');
+
+    /** Glyph stand-in for a hidden panel entry (it only carries the marker). */
+    function HiddenPanelGlyph() {
+      return h('span', { 'data-dshuim-hidden-panel': '' });
+    }
+
+    /** Stand-in for a hidden footer action: renders no box at all. */
+    function HiddenFooterAction() {
+      return null;
+    }
+
+    /**
+     * Resolve one registered slot label (string or thunk) without throwing.
+     * @param {unknown} option - the registration's label option.
+     * @returns {string | undefined} the resolved label.
+     */
+    function resolveItemLabel(option) {
+      try {
+        const value = typeof option === 'function' ? option() : option;
+        return typeof value === 'string' && value.trim() !== '' ? value : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+
+    /**
+     * Read the sidebar's own registrations. Raw entries (not the deduplicated
+     * slot view) are used so a hidden item's original registration is still
+     * discoverable while this plugin shadows it.
+     * @param {object} ctx - the browser plugin context.
+     * @returns {Array<{ key: string, kind: 'panellist' | 'footer', id: string, label: string, order: number }>} discovered items.
+     */
+    function readSidebarItems(ctx) {
+      const items = [];
+      const seen = new Set();
+      const kindRank = { panellist: 0, footer: 1 };
+      for (const [kind, slot] of [['panellist', PANEL_SLOT], ['footer', FOOTER_SLOT]]) {
+        let entries = [];
+        try {
+          entries = ctx.slots.entries(slot) ?? [];
+        } catch {
+          entries = [];
+        }
+        for (const entry of entries) {
+          if (entry.component === HiddenPanelGlyph || entry.component === HiddenFooterAction) continue;
+          const id = entry.options?.id;
+          if (typeof id !== 'string' || id === '') continue;
+          const key = `${kind}:${id}`;
+          if (seen.has(key) || DEDICATED_ITEM_KEYS.has(key)) continue;
+          seen.add(key);
+          const registrant = typeof entry.registrant === 'string'
+            ? entry.registrant
+            : typeof entry.options?.registrant === 'string' ? entry.options.registrant : undefined;
+          items.push({
+            key,
+            kind,
+            id,
+            label: resolveItemLabel(entry.options?.label) ?? registrant ?? id,
+            order: entry.options?.order ?? 0,
+          });
+        }
+      }
+      items.sort((a, b) => kindRank[a.kind] - kindRank[b.kind]
+        || a.order - b.order
+        || a.label.localeCompare(b.label));
+      return items;
+    }
+
+    /**
+     * Observable directory of sidebar items. Labels follow the active locale
+     * and the list follows plugin enable/disable changes.
+     * @param {object} ctx - the browser plugin context.
+     * @returns {{ getSnapshot: () => Array<object>, subscribe: (listener: () => void) => () => void, dispose: () => void } | undefined} the store, or undefined when the slot registry does not expose discovery.
+     */
+    function createSidebarItemsStore(ctx) {
+      if (typeof ctx.slots.entries !== 'function' || typeof ctx.slots.subscribe !== 'function') return undefined;
+      let current = readSidebarItems(ctx);
+      const listeners = new Set();
+      const notify = () => {
+        for (const listener of [...listeners]) listener();
+      };
+      const sync = () => {
+        const next = readSidebarItems(ctx);
+        const unchanged = next.length === current.length
+          && next.every((item, index) => item.key === current[index].key && item.label === current[index].label);
+        if (unchanged) return;
+        current = next;
+        notify();
+      };
+      const offPanel = ctx.slots.subscribe(PANEL_SLOT, sync);
+      const offFooter = ctx.slots.subscribe(FOOTER_SLOT, sync);
+      const offLocale = ctx.locale.subscribe(sync);
+      return {
+        getSnapshot: () => current,
+        subscribe(listener) {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
+        dispose() {
+          offPanel();
+          offFooter();
+          offLocale();
+        },
+      };
+    }
+
     /** Settings page styles: own class prefix, theme tokens only. */
     const SETTINGS_CSS = `
 .dshuim_section { display: flex; flex-direction: column; gap: 12px; max-width: 760px; color: var(--dsw-alias-label-primary, inherit); }
@@ -165,6 +297,7 @@ window.__ModuleLoader__.load({
 .dshuim_switch[aria-checked="true"] .dshuim_thumb { transform: translate(16px); }
 .dshuim_select { font: inherit; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary, inherit); background: var(--dsw-alias-bg-layer-1, transparent); border: .5px solid var(--dsw-alias-border-l2, #b0b0b0); border-radius: 6px; padding: 4px 8px; cursor: pointer; }
 .dshuim_select:disabled { cursor: default; opacity: .5; }
+.dshuim_subheading { margin: 10px 0 0; font-size: 14px; font-weight: 600; line-height: 22px; }
 `;
 
     /** Simplified Chinese copy. */
@@ -183,6 +316,11 @@ window.__ModuleLoader__.load({
       layoutDefault: '保持原样',
       layoutTop: '顶部 2 列',
       layoutBottom: '底部 2 列',
+      otherButtons: '其他侧栏按钮',
+      otherButtonsHint: '自动发现侧栏上的面板按钮和底部动作，逐个控制是否显示。',
+      noOtherButtons: '当前没有发现其他侧栏按钮。',
+      kindPanel: '面板',
+      kindFooter: '底部动作',
       readOnly: '当前部署的设置为只读，无法在这里修改。',
       saveFailed: '设置没有保存成功，请稍后再试。',
     };
@@ -203,6 +341,11 @@ window.__ModuleLoader__.load({
       layoutDefault: 'Keep as is',
       layoutTop: 'Top, 2 columns',
       layoutBottom: 'Bottom, 2 columns',
+      otherButtons: 'Other sidebar buttons',
+      otherButtonsHint: 'Detects panel buttons and footer actions so each can be shown or hidden.',
+      noOtherButtons: 'No other sidebar buttons were detected.',
+      kindPanel: 'Panel',
+      kindFooter: 'Footer action',
       readOnly: 'This deployment stores settings read-only.',
       saveFailed: 'The setting could not be saved. Try again.',
     };
@@ -283,15 +426,19 @@ window.__ModuleLoader__.load({
     function SettingsSection(props) {
       const t = props.t;
       const form = props.useForm((snapshot) => snapshot);
-      const write = props.useWrite((state) => state);
+      const writes = props.useWrite((state) => state);
       const ready = form.status === 'ready';
       const writable = ready && form.writable === true;
-      const busy = write.busy || !writable;
+      const busy = writes.busy || !writable;
       // A missing value means the Config default: the control is shown.
       const showsMore = !ready || form.value?.[SHOW_MORE_FIELD] !== false;
       const showsTasks = !ready || form.value?.[SHOW_TASKS_FIELD] !== false;
       const showsNewSession = !ready || form.value?.[SHOW_NEW_SESSION_FIELD] !== false;
       const layout = ready ? form.value?.[SIDEBAR_LAYOUT_FIELD] ?? 'default' : 'default';
+      const items = props.useItems((value) => value);
+      const hiddenKeys = new Set(ready && Array.isArray(form.value?.[HIDDEN_ITEMS_FIELD])
+        ? form.value[HIDDEN_ITEMS_FIELD]
+        : []);
       return h('div', { className: 'dshuim_section' },
         h('h2', { className: 'dshuim_heading' }, t('title')),
         h('p', { className: 'dshuim_intro' }, t('intro')),
@@ -335,8 +482,22 @@ window.__ModuleLoader__.load({
               void props.setPreference(SHOW_MORE_FIELD, !showsMore);
             },
           })),
+        h('h3', { className: 'dshuim_subheading' }, t('otherButtons')),
+        h('p', { className: 'dshuim_intro' }, t('otherButtonsHint')),
+        items.length === 0
+          ? h('p', { className: 'dshuim_note' }, t('noOtherButtons'))
+          : h('div', { className: 'dshuim_group' }, items.map((item) => h(PreferenceRow, {
+            key: item.key,
+            label: item.label,
+            hint: `${item.kind === 'panellist' ? t('kindPanel') : t('kindFooter')} · ${item.id}`,
+            checked: !hiddenKeys.has(item.key),
+            disabled: busy,
+            onChange: () => {
+              void props.setItemHidden(item.key, hiddenKeys.has(item.key));
+            },
+          }))),
         ready && !writable ? h('p', { className: 'dshuim_note' }, t('readOnly')) : null,
-        write.failed ? h('p', { className: 'dshuim_note dshuim_failed', role: 'status' }, t('saveFailed')) : null);
+        writes.failed ? h('p', { className: 'dshuim_note dshuim_failed', role: 'status' }, t('saveFailed')) : null);
     }
 
     /**
@@ -346,6 +507,15 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       const form = ctx.configForms.get(SETTINGS_NS);
       const write = createWriteState();
+      const itemsStore = createSidebarItemsStore(ctx);
+      const emptyItems = [];
+      const items = itemsStore ?? {
+        getSnapshot: () => emptyItems,
+        subscribe: () => () => {},
+      };
+      if (itemsStore !== undefined) {
+        ctx.effect(() => () => itemsStore.dispose(), 'dsh-ui-modify: sidebar item discovery');
+      }
 
       /** Whether the Host configuration keeps one control visible. */
       const shows = (field) => {
@@ -361,10 +531,78 @@ window.__ModuleLoader__.load({
         return value === 'top' || value === 'bottom' ? value : 'default';
       };
 
+      // ---- dynamic per-item visibility: shadow the original slot registration ----
+      /** key -> disposer of the shadow registration. */
+      const shadows = new Map();
+      let syncingShadows = false;
+      const slotOfKind = (kind) => kind === 'panellist' ? PANEL_SLOT : kind === 'footer' ? FOOTER_SLOT : undefined;
+      const shadowComponentOfKind = (kind) => kind === 'panellist' ? HiddenPanelGlyph : HiddenFooterAction;
+      /** Find the original registration for one id, ignoring this plugin's shadows. */
+      const findOriginal = (slot, id, component) => {
+        let entries = [];
+        try {
+          entries = ctx.slots.entries(slot) ?? [];
+        } catch {
+          entries = [];
+        }
+        return entries.find((entry) => entry.options?.id === id && entry.component !== component);
+      };
+      /** Reconcile one shadow registration per hidden key with the current registry. */
+      const syncShadows = () => {
+        if (syncingShadows) return;
+        syncingShadows = true;
+        try {
+          const snapshot = form.getSnapshot();
+          const hidden = new Set(Array.isArray(snapshot.value?.[HIDDEN_ITEMS_FIELD])
+            ? snapshot.value[HIDDEN_ITEMS_FIELD].filter((key) => typeof key === 'string')
+            : []);
+          for (const [key, disposer] of [...shadows]) {
+            const [kind, ...rest] = key.split(':');
+            const id = rest.join(':');
+            const slot = slotOfKind(kind);
+            const component = shadowComponentOfKind(kind);
+            const original = slot === undefined ? undefined : findOriginal(slot, id, component);
+            if (!hidden.has(key) || original === undefined) {
+              disposer();
+              shadows.delete(key);
+            }
+          }
+          if (snapshot.status !== 'ready') return;
+          for (const key of hidden) {
+            if (shadows.has(key)) continue;
+            const [kind, ...rest] = key.split(':');
+            const id = rest.join(':');
+            const slot = slotOfKind(kind);
+            const component = shadowComponentOfKind(kind);
+            if (slot === undefined || id === '') continue;
+            const original = findOriginal(slot, id, component);
+            if (original === undefined) continue;
+            const options = {
+              name: slot,
+              id,
+              priority: SHADOW_PRIORITY,
+              order: original.options?.order ?? 0,
+            };
+            if (kind === 'panellist' && original.options?.label !== undefined) options.label = original.options.label;
+            const disposer = ctx.slots.inject(slot, () => {
+              try {
+                return ctx.slots.register(options, component);
+              } catch {
+                return () => {};
+              }
+            });
+            shadows.set(key, disposer);
+          }
+        } finally {
+          syncingShadows = false;
+        }
+      };
+
       ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-ui-modify: dictionaries');
 
-      // Keep the injected rules in sync with the Host configuration. When every
-      // control stays visible the element is empty, so no rule is left behind.
+      // Keep the injected rules in sync with the Host configuration. The marker
+      // rule is always present; it only matches rows shadowed by the dynamic
+      // item list.
       ctx.effect(() => {
         if (typeof document === 'undefined') return () => {};
         const tag = document.createElement('style');
@@ -372,7 +610,7 @@ window.__ModuleLoader__.load({
         tag.dataset.pluginCss = 'dsh-ui-modify/sidebar-visibility.css';
         document.head.appendChild(tag);
         const sync = () => {
-          const rules = [];
+          const rules = [HIDE_SHADOWED_PANEL_CSS];
           if (!shows(SHOW_MORE_FIELD)) rules.push(HIDE_SIDEBAR_MORE_CSS);
           if (!shows(SHOW_TASKS_FIELD)) rules.push(HIDE_SCHEDULED_TASKS_CSS);
           if (!shows(SHOW_NEW_SESSION_FIELD)) rules.push(HIDE_NEW_SESSION_CSS);
@@ -387,6 +625,27 @@ window.__ModuleLoader__.load({
           tag.remove();
         };
       }, 'dsh-ui-modify: sidebar visibility');
+
+      // Reconcile the per-item shadows on preference changes and registry changes.
+      ctx.effect(() => {
+        const offForm = form.subscribe(syncShadows);
+        let offPanel;
+        let offFooter;
+        try {
+          offPanel = ctx.slots.subscribe(PANEL_SLOT, syncShadows);
+          offFooter = ctx.slots.subscribe(FOOTER_SLOT, syncShadows);
+        } catch {
+          /* Discovery subscriptions are optional; form changes still reconcile. */
+        }
+        syncShadows();
+        return () => {
+          offForm();
+          offPanel?.();
+          offFooter?.();
+          for (const disposer of shadows.values()) disposer();
+          shadows.clear();
+        };
+      }, 'dsh-ui-modify: sidebar item shadows');
 
       // Settings page styles.
       ctx.effect(() => {
@@ -414,9 +673,24 @@ window.__ModuleLoader__.load({
         write.set({ busy: false, failed: !accepted });
       };
 
+      /** Show or hide one dynamically discovered sidebar item. */
+      const setItemHidden = async (key, show) => {
+        const snapshot = form.getSnapshot();
+        if (snapshot.status !== 'ready') return;
+        const current = Array.isArray(snapshot.value?.[HIDDEN_ITEMS_FIELD])
+          ? snapshot.value[HIDDEN_ITEMS_FIELD].filter((value) => typeof value === 'string')
+          : [];
+        const next = show
+          ? current.filter((value) => value !== key)
+          : current.includes(key) ? current : [...current, key];
+        if (next.length === current.length && next.every((value, index) => value === current[index])) return;
+        await setPreference(HIDDEN_ITEMS_FIELD, next);
+      };
+
       const pageInjection = () => ({
-        hooks: { form, write },
+        hooks: { form, write, items },
         setPreference,
+        setItemHidden,
       });
 
       // The page follows the Host namespace: a deployment that does not serve
