@@ -36,8 +36,6 @@ window.__ModuleLoader__.load({
     const SHOW_NEW_SESSION_FIELD = 'showNewSession';
     const SIDEBAR_LAYOUT_FIELD = 'sidebarButtonLayout';
     const HIDDEN_ITEMS_FIELD = 'hiddenSidebarItems';
-    const COLLAPSED_FIELD = 'sidebarButtonsCollapsed';
-    const COLLAPSE_TOGGLE_ID = 'ui-modify-collapse-buttons';
     /** The two slot containers that render sidebar buttons. */
     const PANEL_SLOT = 'sidebar.panellist';
     const FOOTER_SLOT = 'sidebar.footer.action';
@@ -152,44 +150,6 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Small footer row that folds the panel/footer button area. Registered as
-     * a footer action so it stays mounted while the other actions are hidden;
-     * `data-collapsed` is the marker the folded CSS keys off.
-     * @param {object} props - slot props with the configuration form and the toggle action.
-     * @returns {object} the collapse row.
-     */
-    function CollapseButton(props) {
-      const t = props.t;
-      const form = props.useForm((snapshot) => snapshot);
-      const ready = form.status === 'ready';
-      const collapsed = ready && form.value?.[COLLAPSED_FIELD] === true;
-      return h('div', {
-        className: 'dshuim_collapseRow',
-        'data-dshuim-collapse-toggle': '',
-        'data-collapsed': collapsed ? 'true' : 'false',
-      },
-      h('button', {
-        type: 'button',
-        className: 'dshuim_collapseButton',
-        title: t(collapsed ? 'expandButtonArea' : 'collapseButtonArea'),
-        'aria-expanded': collapsed ? 'false' : 'true',
-        disabled: !ready,
-        onClick: () => {
-          props.toggle?.();
-        },
-      },
-      h('svg', { width: 10, height: 10, viewBox: '0 0 10 10', 'aria-hidden': 'true' },
-        h('path', {
-          d: collapsed ? 'M2 4 L5 7 L8 4' : 'M2 6 L5 3 L8 6',
-          fill: 'none',
-          stroke: 'currentColor',
-          'stroke-width': 1.4,
-          'stroke-linecap': 'round',
-          'stroke-linejoin': 'round',
-        }))));
-    }
-
-    /**
      * Resolve one registered slot label (string or thunk) without throwing.
      * @param {unknown} option - the registration's label option.
      * @returns {string | undefined} the resolved label.
@@ -240,26 +200,17 @@ window.__ModuleLoader__.load({
           if (entry.component === HiddenPanelGlyph || entry.component === HiddenFooterAction) continue;
           const id = entry.options?.id;
           if (typeof id !== 'string' || id === '') continue;
-          // The collapse control is structural, not a user-manageable button.
-          if (id === COLLAPSE_TOGGLE_ID) continue;
           const key = `${kind}:${id}`;
           if (seen.has(key)) continue;
           seen.add(key);
           const registrant = typeof entry.registrant === 'string'
             ? entry.registrant
             : typeof entry.options?.registrant === 'string' ? entry.options.registrant : undefined;
-          // Footer actions often omit a label; give the two shipped ones a
-          // recognizable name instead of exposing their package ids.
-          const knownFooterLabel = kind === 'footer'
-            ? id === 'ds-harness-remote-workspace' ? 'Remote'
-              : id === 'dsh-flowmeter-total' ? t('usageCard')
-                : undefined
-            : undefined;
           items.push({
             key,
             kind,
             id,
-            label: resolveItemLabel(entry.options?.label) ?? knownFooterLabel ?? registrant ?? id,
+            label: resolveItemLabel(entry.options?.label) ?? registrant ?? id,
             order: entry.options?.order ?? 0,
           });
         }
@@ -340,27 +291,6 @@ window.__ModuleLoader__.load({
 .dshuim_subheading { margin: 6px 0 0; font-size: 13px; font-weight: 600; line-height: 20px; }
 `;
 
-    /**
-     * Collapse control and folded button-area rules.
-     *
-     * The toggle is registered as a footer action, so it stays mounted when the
-     * other footer actions are hidden. Its `data-collapsed` attribute drives
-     * the CSS, which hides the panel list and every footer action except the
-     * toggle itself. The sidebar root is identified by its direct `panelList`
-     * child, the same scope used by the layout rules.
-     */
-    const COLLAPSE_CSS = `
-.dshuim_collapseRow { grid-column: 1 / -1; order: -1; display: flex; width: 100%; height: 16px; margin: 0; }
-.dshuim_collapseButton { display: flex; align-items: center; justify-content: flex-start; width: 18px; height: 16px; padding: 0 3px; border: 0; border-radius: 4px; background: transparent; color: var(--dsw-alias-label-secondary, #8b8b8b); font: inherit; line-height: 1; cursor: pointer; }
-.dshuim_collapseButton:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-primary, inherit); }
-.dshuim_collapseButton:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #3d6df6); outline-offset: -2px; }
-.dshuim_collapseButton:disabled { cursor: default; opacity: .5; }
-.dshuim_collapseButton svg { flex: none; }
-:has(> nav[class*="panelList"]):has([data-dshuim-collapse-toggle][data-collapsed="true"]) nav[class*="panelList"] { display: none !important; }
-:has(> nav[class*="panelList"]):has([data-dshuim-collapse-toggle][data-collapsed="true"]) [data-slot="sidebar.footer.action"] > :not(.dshuim_collapseRow) { display: none !important; }
-:has(> nav[class*="panelList"]):has([data-dshuim-collapse-toggle][data-collapsed="true"]) [class*="footerActions"] > :not(.dshuim_collapseRow):not(:has(.dshuim_collapseRow)) { display: none !important; }
-`;
-
     /** Simplified Chinese copy. */
     const zh = {
       nav: '界面优化',
@@ -377,9 +307,6 @@ window.__ModuleLoader__.load({
       newSession: '新会话按钮',
       sidebarLayout: '按钮排列',
       sidebarLayoutHint: '把面板按钮和底部动作按钮统一排成 2 列网格。流量卡片会随底部动作区一起移动。',
-      collapseButtonArea: '折叠按钮区',
-      expandButtonArea: '展开按钮区',
-      collapseButtonsHint: '隐藏面板按钮、底部动作与流量卡片，只保留一行展开按钮；工作区列表和账号行不受影响。',
       layoutDefault: '保持原样',
       layoutTop: '顶部 2 列',
       layoutBottom: '底部 2 列',
@@ -387,7 +314,6 @@ window.__ModuleLoader__.load({
       kindNative: '原生控件',
       kindPanel: '面板',
       kindFooter: '底部动作',
-      usageCard: '流量卡片',
       readOnly: '当前部署的设置为只读，无法在这里修改。',
       saveFailed: '设置没有保存成功，请稍后再试。',
     };
@@ -408,9 +334,6 @@ window.__ModuleLoader__.load({
       newSession: 'New session button',
       sidebarLayout: 'Button arrangement',
       sidebarLayoutHint: 'Groups panel buttons and footer actions into one 2-column grid. The usage card moves with the footer actions.',
-      collapseButtonArea: 'Collapse button area',
-      expandButtonArea: 'Expand button area',
-      collapseButtonsHint: 'Hides panel buttons, footer actions, and the usage card, leaving a single expand bar; the workspace list and account row stay put.',
       layoutDefault: 'Keep as is',
       layoutTop: 'Top, 2 columns',
       layoutBottom: 'Bottom, 2 columns',
@@ -418,7 +341,6 @@ window.__ModuleLoader__.load({
       kindNative: 'Native control',
       kindPanel: 'Panel',
       kindFooter: 'Footer action',
-      usageCard: 'Usage card',
       readOnly: 'This deployment stores settings read-only.',
       saveFailed: 'The setting could not be saved. Try again.',
     };
@@ -504,7 +426,6 @@ window.__ModuleLoader__.load({
       const writable = ready && form.writable === true;
       const busy = writes.busy || !writable;
       const layout = ready ? form.value?.[SIDEBAR_LAYOUT_FIELD] ?? 'default' : 'default';
-      const collapsed = ready && form.value?.[COLLAPSED_FIELD] === true;
       const items = props.useItems((value) => value);
       const hiddenKeys = new Set(ready && Array.isArray(form.value?.[HIDDEN_ITEMS_FIELD])
         ? form.value[HIDDEN_ITEMS_FIELD]
@@ -549,15 +470,6 @@ window.__ModuleLoader__.load({
               bottomLabel: t('layoutBottom'),
               onChange: (event) => {
                 void props.setPreference(SIDEBAR_LAYOUT_FIELD, event.target.value);
-              },
-            }),
-            h(PreferenceRow, {
-              label: t('collapseButtonArea'),
-              hint: t('collapseButtonsHint'),
-              checked: collapsed,
-              disabled: busy,
-              onChange: () => {
-                void props.setPreference(COLLAPSED_FIELD, !collapsed);
               },
             }))),
         h('section', { className: 'dshuim_category' },
@@ -691,7 +603,7 @@ window.__ModuleLoader__.load({
         document.head.appendChild(tag);
         const sync = () => {
           const hidden = hiddenKeysOf();
-          const rules = [HIDE_SHADOWED_PANEL_CSS, COLLAPSE_CSS];
+          const rules = [HIDE_SHADOWED_PANEL_CSS];
           if (hidden.has(NATIVE_MORE_KEY)) rules.push(HIDE_SIDEBAR_MORE_CSS);
           if (hidden.has(NATIVE_NEW_SESSION_KEY)) rules.push(HIDE_NEW_SESSION_CSS);
           const layout = sidebarLayout();
@@ -785,24 +697,6 @@ window.__ModuleLoader__.load({
         setPreference,
         setItemHidden,
       });
-
-      // The collapse control is a footer action so it remains mounted when the
-      // other footer actions are hidden by the folded CSS.
-      ctx.effect(() => ctx.slots.inject(FOOTER_SLOT, () => ctx.slots.register({
-        name: FOOTER_SLOT,
-        id: COLLAPSE_TOGGLE_ID,
-        order: -1000,
-        locale: NS,
-        inject: () => ({
-          hooks: { form },
-          toggle: () => {
-            const snapshot = form.getSnapshot();
-            if (snapshot.status !== 'ready') return;
-            const collapsed = snapshot.value?.[COLLAPSED_FIELD] === true;
-            void setPreference(COLLAPSED_FIELD, !collapsed);
-          },
-        }),
-      }, CollapseButton)), 'dsh-ui-modify: collapse control');
 
       // The page follows the Host namespace: a deployment that does not serve
       // this plugin's settings shows no trace of it.
