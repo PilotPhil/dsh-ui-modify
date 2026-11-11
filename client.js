@@ -186,8 +186,7 @@ window.__ModuleLoader__.load({
           'stroke-width': 1.4,
           'stroke-linecap': 'round',
           'stroke-linejoin': 'round',
-        })),
-      h('span', null, t(collapsed ? 'expandButtonArea' : 'collapseButtonArea'))));
+        }))));
     }
 
     /**
@@ -249,11 +248,18 @@ window.__ModuleLoader__.load({
           const registrant = typeof entry.registrant === 'string'
             ? entry.registrant
             : typeof entry.options?.registrant === 'string' ? entry.options.registrant : undefined;
+          // Footer actions often omit a label; give the two shipped ones a
+          // recognizable name instead of exposing their package ids.
+          const knownFooterLabel = kind === 'footer'
+            ? id === 'ds-harness-remote-workspace' ? 'Remote'
+              : id === 'dsh-flowmeter-total' ? t('usageCard')
+                : undefined
+            : undefined;
           items.push({
             key,
             kind,
             id,
-            label: resolveItemLabel(entry.options?.label) ?? registrant ?? id,
+            label: resolveItemLabel(entry.options?.label) ?? knownFooterLabel ?? registrant ?? id,
             order: entry.options?.order ?? 0,
           });
         }
@@ -344,14 +350,14 @@ window.__ModuleLoader__.load({
      * child, the same scope used by the layout rules.
      */
     const COLLAPSE_CSS = `
-.dshuim_collapseRow { grid-column: 1 / -1; order: -1; display: flex; width: 100%; margin: 2px 0; }
-.dshuim_collapseButton { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 26px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary, #8b8b8b); font: inherit; font-size: 11px; line-height: 1; cursor: pointer; }
+.dshuim_collapseRow { grid-column: 1 / -1; order: -1; display: flex; width: 100%; height: 16px; margin: 0; }
+.dshuim_collapseButton { display: flex; align-items: center; justify-content: flex-start; width: 18px; height: 16px; padding: 0 3px; border: 0; border-radius: 4px; background: transparent; color: var(--dsw-alias-label-secondary, #8b8b8b); font: inherit; line-height: 1; cursor: pointer; }
 .dshuim_collapseButton:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-primary, inherit); }
 .dshuim_collapseButton:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #3d6df6); outline-offset: -2px; }
 .dshuim_collapseButton:disabled { cursor: default; opacity: .5; }
 .dshuim_collapseButton svg { flex: none; }
-[class*="footerActions"] > :has(.dshuim_collapseRow) { grid-column: 1 / -1; order: -1; }
 :has(> nav[class*="panelList"]):has([data-dshuim-collapse-toggle][data-collapsed="true"]) nav[class*="panelList"] { display: none !important; }
+:has(> nav[class*="panelList"]):has([data-dshuim-collapse-toggle][data-collapsed="true"]) [data-slot="sidebar.footer.action"] > :not(.dshuim_collapseRow) { display: none !important; }
 :has(> nav[class*="panelList"]):has([data-dshuim-collapse-toggle][data-collapsed="true"]) [class*="footerActions"] > :not(.dshuim_collapseRow):not(:has(.dshuim_collapseRow)) { display: none !important; }
 `;
 
@@ -381,6 +387,7 @@ window.__ModuleLoader__.load({
       kindNative: '原生控件',
       kindPanel: '面板',
       kindFooter: '底部动作',
+      usageCard: '流量卡片',
       readOnly: '当前部署的设置为只读，无法在这里修改。',
       saveFailed: '设置没有保存成功，请稍后再试。',
     };
@@ -411,6 +418,7 @@ window.__ModuleLoader__.load({
       kindNative: 'Native control',
       kindPanel: 'Panel',
       kindFooter: 'Footer action',
+      usageCard: 'Usage card',
       readOnly: 'This deployment stores settings read-only.',
       saveFailed: 'The setting could not be saved. Try again.',
     };
